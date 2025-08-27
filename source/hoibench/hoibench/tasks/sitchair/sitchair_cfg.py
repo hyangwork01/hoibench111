@@ -74,7 +74,7 @@ class SitchairG1EnvCfg(SitchairEnvCfg):
 
 
 @configclass
-class SitchairH1Cfg(SitchairEnvCfg):
+class SitchairH1EnvCfg(SitchairEnvCfg):
     reference_body: str = "torso_link"
     contact_body: str = "pelvis"
     key_body_names = ["right_elbow_link", "left_elbow_link", "right_ankle_link", "left_ankle_link"]

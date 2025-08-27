@@ -27,7 +27,9 @@ class SitchairEnv(HOIEnv):
         ndof = self.robot.data.joint_pos.shape[1]
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3   # q, qd, root_z, root_rot6d, root_lin, root_ang
         inter_dim = 10                              # obj_center_rel(3)+size_obb(3)+obj_quat(4)
-        obs_dim = base_self_dim + inter_dim
+        goal_dim = 2
+        obs_dim = base_self_dim + inter_dim + goal_dim
+
 
         self.cfg.action_space = ndof
         self.cfg.observation_space = obs_dim
