@@ -1,135 +1,82 @@
-# Template for Isaac Lab Projects
+# Humanoid–Object Interaction Challenge Template
 
 ## Overview
 
-This project/repository serves as a template for building projects or extensions based on Isaac Lab.
-It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
+This repository provides the code template for the ICCV 2025 workshop **Humanoid–Object Interaction Challenge**, used to train and evaluate humanoid robots’ interaction capabilities in multi-object scenes.
 
-**Key Features:**
+## Task Definitions
 
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
+The six benchmark tasks provide both training (Train) and evaluation (Eval) environments, and support multiple robot models including **SMPL**, **Unitree H1**, and **Unitree G1**.
 
-**Keywords:** extension, template, isaaclab
+* **CarryBox**: Lift a box from the ground and carry it along the +X direction for a certain distance. Success requires the box to rise by at least `lift_height` (default 0.15 m) and the XY error to be less than `success_xy_threshold` (default 0.25 m).
+* **Claw**: Toys and a target position are randomly placed on a tabletop. The robot must push the toy to the target position and hold it there for `eval_hold_success_steps` consecutive frames (default 5 frames).
+* **LieBed**: Lie down at the center of the bed; must satisfy vertical height difference < `lie_z_threshold` (default 0.05 m), XY distance < `lie_xy_threshold` (default 0.35 m), and velocity < `lie_vel_threshold`, and maintain these conditions for several frames.
+* **PushBox**: Push the box so that its displacement exceeds `push_target_offset` (default 0.5 m).
+* **SitChair**: Sit down at the center of the chair; success is determined by a combination of seat height difference, XY error, and velocity thresholds.
+* **Touch**: Use a specified body part to touch a randomly generated target point; success requires the distance to be less than `touch_threshold` (default 0.03 m) and to execute at least `min_success_steps` steps.
+
+## Observations
+
+All tasks’ observations consist of two parts:
+
+1. **Robot proprioception**: joint positions/velocities, base/root height and 6D rotation, linear velocity, angular velocity, etc.
+2. **Interaction information**: task-related relative object positions, OBB/AABB sizes, poses, or target vectors, etc.
 
 ## Installation
 
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
-  We recommend using the conda installation as it simplifies calling Python scripts from the terminal.
+1. Follow the [Isaac Lab Installation Guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/pip_installation.html) to set up the runtime environment.
+2. Clone and install this template in editable mode:
 
-- Clone or copy this project/repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
+   ```bash
+   python -m pip install -e source/hoibench
+   ```
 
-- Using a python interpreter that has Isaac Lab installed, install the library in editable mode using:
+## Training (Train)
 
-    ```bash
-    # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/hoibench
-
-- Verify that the extension is correctly installed by:
-
-    - Listing the available tasks:
-
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
-        (in the `scripts/list_envs.py` file) so that it can be listed.
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
-        ```
-
-    - Running a task:
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
-        ```
-
-    - Running a task with dummy agents:
-
-        These include dummy agents that output zero or random agents. They are useful to ensure that the environments are configured correctly.
-
-        - Zero-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/zero_agent.py --task=<TASK_NAME>
-            ```
-        - Random-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/random_agent.py --task=<TASK_NAME>
-            ```
-
-### Set up IDE (Optional)
-
-To setup the IDE, please follow these instructions:
-
-- Run VSCode Tasks, by pressing `Ctrl+Shift+P`, selecting `Tasks: Run Task` and running the `setup_python_env` in the drop down menu.
-  When running this task, you will be prompted to add the absolute path to your Isaac Sim installation.
-
-If everything executes correctly, it should create a file .python.env in the `.vscode` directory.
-The file contains the python paths to all the extensions provided by Isaac Sim and Omniverse.
-This helps in indexing all the python modules for intelligent suggestions while writing code.
-
-### Setup as Omniverse Extension (Optional)
-
-We provide an example UI extension that will load upon enabling your extension defined in `source/hoibench/hoibench/ui_extension_example.py`.
-
-To enable your extension, follow these steps:
-
-1. **Add the search path of this project/repository** to the extension manager:
-    - Navigate to the extension manager using `Window` -> `Extensions`.
-    - Click on the **Hamburger Icon**, then go to `Settings`.
-    - In the `Extension Search Paths`, enter the absolute path to the `source` directory of this project/repository.
-    - If not already present, in the `Extension Search Paths`, enter the path that leads to Isaac Lab's extension directory directory (`IsaacLab/source`)
-    - Click on the **Hamburger Icon**, then click `Refresh`.
-
-2. **Search and enable your extension**:
-    - Find your extension under the `Third Party` category.
-    - Toggle it to enable your extension.
-
-## Code formatting
-
-We have a pre-commit template to automatically format your code.
-To install pre-commit:
+List available environment names, then start training:
 
 ```bash
-pip install pre-commit
+python scripts/list_envs.py
+python scripts/skrl/train.py \
+  --task=Isaac-HOISmpl-Train-Claw-v0 \
+  --num_envs=16 \
+  --algorithm=PPO
 ```
 
-Then you can run pre-commit with:
+
+
+## Evaluation (Eval)
+
+After training, run batch evaluation. Provide the checkpoint and the corresponding YAML config:
 
 ```bash
-pre-commit run --all-files
+python scripts/skrl/eval.py \
+  --task=Isaac-HOIG1-Eval-Claw-v0 \
+  --num_envs=16 \
+  --algorithm=PPO \
+  --checkpoint=logs/skrl/humanoid_direct/2025-08-28_12-40-09_ppo_torch/checkpoints/best_agent.pt \
+  --checkpoint_yaml=logs/skrl/humanoid_direct/2025-08-28_12-40-09_ppo_torch/params/agent.yaml
+
 ```
 
-## Troubleshooting
+The evaluation process reports the number of successes, timeouts, and the average completion time, and performs a global reset after all environments finish.
 
-### Pylance Missing Indexing of Extensions
+## Metrics
 
-In some VsCode versions, the indexing of part of the extensions is missing.
-In this case, add the path to your extension in `.vscode/settings.json` under the key `"python.analysis.extraPaths"`.
+Each evaluation environment maintains the following statistics:
 
-```json
-{
-    "python.analysis.extraPaths": [
-        "<path-to-ext-repo>/source/hoibench"
-    ]
-}
+* `stat_success_count`: number of successes
+* `stat_timeout_count`: number of timeouts
+* `stat_avg_time`: average completion time (see the Claw evaluation environment source code for an example)
+
+## Environment Debugging
+
+Run the zero-action or random-action scripts first to quickly verify that the environment is configured correctly:
+
+```bash
+python scripts/zero_agent.py --task=<TASK_NAME>
 ```
 
-### Pylance Crash
-
-If you encounter a crash in `pylance`, it is probable that too many files are indexed and you run out of memory.
-A possible solution is to exclude some of omniverse packages that are not used in your project.
-To do so, modify `.vscode/settings.json` and comment out packages under the key `"python.analysis.extraPaths"`
-Some examples of packages that can likely be excluded are:
-
-```json
-"<path-to-isaac-sim>/extscache/omni.anim.*"         // Animation packages
-"<path-to-isaac-sim>/extscache/omni.kit.*"          // Kit UI tools
-"<path-to-isaac-sim>/extscache/omni.graph.*"        // Graph UI tools
-"<path-to-isaac-sim>/extscache/omni.services.*"     // Services tools
-...
+```bash
+python scripts/random_agent.py --task=<TASK_NAME>
 ```
