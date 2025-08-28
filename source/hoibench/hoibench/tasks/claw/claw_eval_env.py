@@ -31,7 +31,7 @@ class ClawEnv(HOIEnv):
 
         super().__init__(cfg, render_mode, **kwargs)
 
-        # === 观测维度（与训练保持一致）===
+                              
         ndof = self.robot.data.joint_pos.shape[1]
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3   # q, qd, root_z, root_rot6d, root_lin, root_ang
         inter_dim = 10                              # toy_center_rel(3)+size_obb(3)+toy_quat(4)
@@ -42,23 +42,23 @@ class ClawEnv(HOIEnv):
         self.cfg.observation_space = obs_dim
         self._configure_gym_env_spaces()
 
-        # 动作缩放
+              
         dof_lower = self.robot.data.soft_joint_pos_limits[0, :, 0]
         dof_upper = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper + dof_lower)
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
-        # 评测设置
-        self._thr_xy = float(getattr(self.cfg, "goal_success_xy", 0.03))     # 成功半径（XY），默认 3cm
-        self._eval_hold_steps = int(getattr(self.cfg, "eval_hold_success_steps", 5))  # 连续保持成功帧数
+              
+        self._thr_xy = float(getattr(self.cfg, "goal_success_xy", 0.03))                      
+        self._eval_hold_steps = int(getattr(self.cfg, "eval_hold_success_steps", 5))            
 
-        # 目标点（世界系 XY）
+                     
         self._goal_xy_w = torch.zeros((self.num_envs, 2), device=self.device)
 
-        # 连续成功计数（逐 env）
+                       
         self._succ_streak = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
 
-        # 统计/标志
+               
         self.stat_success_count = 0
         self.stat_timeout_count = 0
         self.stat_success_time_sum = 0.0
@@ -66,17 +66,17 @@ class ClawEnv(HOIEnv):
         self.stat_completed = 0
         self.stat_avg_time = 0.0
         self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.done_flag = False  # 整体一次评测是否已完成（全部 env 完成后置 True）
+        self.done_flag = False                                 
 
-    # ----------------- 场景构建 -----------------
+                                              
     def _setup_scene(self):
-        # 机器人与物体
+                
         self.robot = Articulation(self.cfg.robot)
         self.table = RigidObject(self.cfg.table)
         self.toy   = RigidObject(self.cfg.toy)
-        self.goal  = RigidObject(self.cfg.goal)  # 仅可视化：kinematic & no-collision
+        self.goal  = RigidObject(self.cfg.goal)                                 
 
-        # 地面 & 场景克隆
+                   
         spawn_ground_plane(
             prim_path="/World/ground",
             cfg=GroundPlaneCfg(
@@ -89,17 +89,17 @@ class ClawEnv(HOIEnv):
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
 
-        # 注册
+            
         self.scene.articulations["robot"] = self.robot
         self.scene.rigid_objects["table"] = self.table
         self.scene.rigid_objects["toy"]   = self.toy
         self.scene.rigid_objects["goal"]  = self.goal
 
-        # 灯光
+            
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-    # ----------------- AABB/OBB 工具（与训练一致） -----------------
+                                                            
     def _get_dims_for(self, obj: RigidObject, env_ids: Sequence[int] | None = None):
         """返回 obj 在各 env 的 AABB/OBB 尺寸信息。"""
         import numpy as np
@@ -175,7 +175,7 @@ class ClawEnv(HOIEnv):
             "keepout_radius_xy": keepout_radius_xy,
         }
 
-    # ----------------- 重置（Eval：仅在需要的 env 上采样） -----------------
+                                                                
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
@@ -191,11 +191,11 @@ class ClawEnv(HOIEnv):
         robot_r = 1.0
         max_trials = 1000
 
-        # 尺寸
+            
         table_dims = self._get_dims_for(self.table, env_ids)
         toy_dims   = self._get_dims_for(self.toy,   env_ids)
 
-        # 默认状态
+              
         root_state  = self.robot.data.default_root_state[env_ids].clone()
         joint_pos   = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel   = self.robot.data.default_joint_vel[env_ids].clone()
@@ -211,7 +211,7 @@ class ClawEnv(HOIEnv):
         goal_xy  = torch.zeros((N, 2), device=device)
         use_default_quat_toy = torch.zeros((N,), dtype=torch.bool, device=device)
 
-        # 矩形内均匀采样
+                 
         def _sample_xy_box(cx: float, cy: float, half_w: float, half_d: float):
             rx = torch.empty((), device=device).uniform_(cx - half_w, cx + half_w).item()
             ry = torch.empty((), device=device).uniform_(cy - half_d, cy + half_d).item()
@@ -220,7 +220,7 @@ class ClawEnv(HOIEnv):
         for i in range(N):
             cx, cy, cz = origins[i].tolist()
 
-            # --- robot 放置：与桌子保持距离 ---
+                                      
             r_table = float(table_dims["keepout_radius_xy"][i].item())
             placed_robot = False
             for _ in range(max_trials):
@@ -240,12 +240,12 @@ class ClawEnv(HOIEnv):
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
 
-            # --- Table 固定在默认位姿（叠加 env 平移）---
+                                             
             table_state[i, 0] = cx + float(table_state[i, 0].item())
             table_state[i, 1] = cy + float(table_state[i, 1].item())
             table_state[i, 2] = cz + float(table_state[i, 2].item())
 
-            # 桌面顶面 z、有效采样矩形（≈ sqrt(0.9) ≈ 0.95 的长宽）
+                                                   
             a_min = table_dims["aabb_min"][i]
             a_max = table_dims["aabb_max"][i]
             width = float((a_max[0] - a_min[0]).item())
@@ -257,15 +257,15 @@ class ClawEnv(HOIEnv):
             table_center_y = table_state[i, 1].item()
             table_top_z = table_state[i, 2].item() + 0.5 * float(table_dims["size_aabb"][i, 2].item())
 
-            # 玩具半高 & 放置高度（贴桌面）
+                              
             toy_half_h = 0.5 * float(toy_dims["size_aabb"][i, 2].item())
             toy_z = table_top_z + toy_half_h + 0.02
 
-            # --- 目标点（桌面 90% 区域）---
+                                   
             gx, gy = _sample_xy_box(table_center_x, table_center_y, half_w_eff, half_d_eff)
             goal_xy[i, 0], goal_xy[i, 1] = gx, gy
 
-            # --- 玩具点（也在 90% 区域，且与目标 ≥ 15cm）---
+                                               
             placed_toy = False
             for _ in range(max_trials):
                 tx_s, ty_s = _sample_xy_box(table_center_x, table_center_y, half_w_eff, half_d_eff)
@@ -284,13 +284,13 @@ class ClawEnv(HOIEnv):
             toy_state[i, 1] = toy_xy[i, 1]
             toy_state[i, 2] = toy_z
 
-        # --- 写回仿真 ---
+                      
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
         self.table.write_root_pose_to_sim(table_state[:, :7], env_ids)
 
-        # 玩具 yaw-only 四元数（wxyz）
+                               
         cos, sin = torch.cos(0.5 * toy_yaw), torch.sin(0.5 * toy_yaw)
         toy_quat_rand = torch.stack([cos, torch.zeros_like(cos), torch.zeros_like(cos), sin], dim=-1)
         toy_quat_default = toy_state[:, 3:7]
@@ -298,7 +298,7 @@ class ClawEnv(HOIEnv):
         toy_root_pose = torch.cat([toy_state[:, :3], toy_quat], dim=-1)
         self.toy.write_root_pose_to_sim(toy_root_pose, env_ids)
 
-        # 目标小球：置于桌面上方 2cm（无碰撞）
+                              
         goal_pose = torch.zeros((len(env_ids), 7), device=self.device)
         goal_pose[:, 0] = goal_xy[:, 0]
         goal_pose[:, 1] = goal_xy[:, 1]
@@ -306,7 +306,7 @@ class ClawEnv(HOIEnv):
         goal_pose[:, 3] = 1.0  # identity quat
         self.goal.write_root_pose_to_sim(goal_pose, env_ids)
 
-        # 缓存/计数清理
+                 
         self._goal_xy_w[env_ids] = goal_xy
         self._succ_streak[env_ids] = 0
         if hasattr(self, "_counted_mask"):
@@ -315,30 +315,30 @@ class ClawEnv(HOIEnv):
             for k in self._last_obs:
                 self._last_obs[k][env_ids] = 0.0
 
-        # 整体 flag 清零
+                    
         self.done_flag = False
 
-    # ----------------- 结束条件（Eval：连续保持） -----------------
+                                                         
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         device = self.device
 
-        # 超时（truncation）
+                        
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
 
-        # 成功：玩具与目标的 XY 距离
+                         
         toy_xy  = self.toy.data.root_pos_w[:, :2]
         goal_xy = self._goal_xy_w
         dist_xy = torch.linalg.norm(toy_xy - goal_xy, dim=-1)
         cond_now = dist_xy < self._thr_xy
 
-        # 连续保持计数
+                
         self._succ_streak = torch.where(cond_now, self._succ_streak + 1, torch.zeros_like(self._succ_streak))
         done_success = self._succ_streak >= self._eval_hold_steps
 
-        # 成功优先，互斥超时
+                   
         time_out = time_out & (~done_success)
 
-        # --- 统计（仅新完成那一帧计数）---
+                              
         completed_now = done_success | time_out
         if not hasattr(self, "_counted_mask"):
             self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
@@ -364,7 +364,7 @@ class ClawEnv(HOIEnv):
         self._counted_mask |= completed_now
         return done_success, time_out
 
-    # ----------------- 单步（Eval：全部完成后统一重置） -----------------
+                                                            
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         action = action.to(self.device)
         if self.cfg.action_noise_model:
@@ -387,9 +387,9 @@ class ClawEnv(HOIEnv):
 
         self.reset_terminated[:], self.reset_time_outs[:] = self._get_dones()
         self.reset_buf = self.reset_terminated | self.reset_time_outs
-        self.reward_buf = self._get_rewards()  # 全 0
+        self.reward_buf = self._get_rewards()       
 
-        # 仅当“所有 env 完成”时，整体重置
+                             
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) == self.num_envs:
             self._reset_idx(reset_env_ids)
@@ -399,24 +399,24 @@ class ClawEnv(HOIEnv):
                 self.sim.render()
             self.done_flag = True
 
-        # 事件
+            
         if self.cfg.events and "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
 
-        # 观测
+            
         self.obs_buf = self._get_observations()
         if self.cfg.observation_noise_model:
             self.obs_buf["policy"] = self._observation_noise_model(self.obs_buf["policy"])
 
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
-    # ----------------- 动作（完成 env 冻结当前姿态） -----------------
+                                                           
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions
         self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
-        # 冻结已完成 env 的动作，避免扰动统计
+                              
         completed = getattr(self, "_counted_mask", None)
         if completed is not None and completed.any():
             q_current = self.robot.data.joint_pos
@@ -428,13 +428,13 @@ class ClawEnv(HOIEnv):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    # ----------------- 观测（与训练一致） -----------------
+                                                   
     def _get_observations(self) -> VecEnvObs:
         device = self.device
         q  = self.robot.data.joint_pos
         qd = self.robot.data.joint_vel
 
-        # 参考刚体：优先 cfg.reference_body
+                                    
         ref_name = getattr(self.cfg, "reference_body", None)
         names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
         if ref_name and (ref_name in names):
@@ -460,12 +460,12 @@ class ClawEnv(HOIEnv):
         toy_quat_w = self.toy.data.root_quat_w
         toy_center_rel = toy_pos_w - root_pos_w
 
-        # toy OBB 尺寸缓存
+                      
         if not hasattr(self, "_cached_toy_size_obb") or self._cached_toy_size_obb.shape[0] != self.num_envs:
             self._cached_toy_size_obb = self._get_dims_for(self.toy, None)["size_obb"].to(device)
         toy_size_obb = self._cached_toy_size_obb
 
-        # goal 相对 toy 的 XY 向量
+                             
         goal_vec_xy = self._goal_xy_w - toy_pos_w[:, :2]
 
         self_part  = torch.cat([q, qd, root_z, root_rot_6d, root_lin_w, root_ang_w], dim=-1)
@@ -475,7 +475,7 @@ class ClawEnv(HOIEnv):
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
 
-        # 完成 env 使用上一帧观测，避免抖动
+                             
         if not hasattr(self, "_last_obs"):
             self._last_obs = {k: v.clone() for k, v in obs.items()}
         completed = getattr(self, "_counted_mask", None)
@@ -484,13 +484,13 @@ class ClawEnv(HOIEnv):
         self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
-    # ----------------- 评测用 flag 接口 -----------------
+                                                     
     def get_done_flag(self):
         return self.done_flag
 
     def set_done_flag(self, new_flag: bool):
         self.done_flag = bool(new_flag)
 
-    # ----------------- 评测奖励：恒为 0 -----------------
+                                                   
     def _get_rewards(self) -> torch.Tensor:
         return torch.zeros(self.num_envs, device=self.device)

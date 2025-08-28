@@ -27,9 +27,9 @@ class LiebedEnv(HOIEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         ndof = self.robot.data.joint_pos.shape[1]
-        # 自身体态：关节 + 根高 + 根姿(6D) + 根线/角速
+                                       
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3
-        # 交互体态：中心点 + 长宽高 + 四元数
+                              
         inter_dim = 10
         goal_dim = 2
         obs_dim = base_self_dim + inter_dim + goal_dim
@@ -38,7 +38,7 @@ class LiebedEnv(HOIEnv):
         self.cfg.observation_space = obs_dim
         self._configure_gym_env_spaces()
 
-        # --------- 动作缩放 ----------
+                                   
         dof_lower = self.robot.data.soft_joint_pos_limits[0, :, 0]
         dof_upper = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper + dof_lower)
@@ -52,23 +52,23 @@ class LiebedEnv(HOIEnv):
 
         self.done_flag = False
 
-        # ===== Eval 阈值（可在 cfg 中覆盖）=====
-        # z 方向接近床面的阈值（m）
+                                        
+                        
         self._lie_thr_z  = float(getattr(self.cfg, "lie_z_threshold", 0.05))
-        # XY 与床中心的阈值（m）
+                       
         self._lie_thr_xy = float(getattr(self.cfg, "lie_xy_threshold", 0.35))
-        # 骨盆（或参考刚体）的线速度阈值（m/s），用于“稳定”判定
+                                       
         self._lie_vel_thr = float(getattr(self.cfg, "lie_vel_threshold", 0.2))
-        # 评测时要求“连续保持成功”的帧数
+                          
         self._eval_hold_steps = int(getattr(self.cfg, "eval_hold_success_steps", 5))
 
-        # 连续成功计数缓存（逐 env）
+                         
         self._succ_streak = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
 
-        # 懒加载：物体 AABB 半高缓存（逐 env）
+                                 
         self._obj_half_height_z = None
 
-    # ----------------- 场景构建 -----------------
+                                              
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
         self.obj = RigidObject(self.cfg.obj)
@@ -89,7 +89,7 @@ class LiebedEnv(HOIEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-    # ----------------- 重置（Eval：仅在需要时整体重置） -----------------
+                                                            
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
@@ -110,7 +110,7 @@ class LiebedEnv(HOIEnv):
         obj_info = self._get_dims(env_ids)
         obj_r_all = obj_info["keepout_radius_xy"]  # shape (N,)
 
-        # 默认状态（局部 env 坐标）
+                         
         root_state = self.robot.data.default_root_state[env_ids].clone()  # (N, 13)
         joint_pos  = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel  = self.robot.data.default_joint_vel[env_ids].clone()
@@ -122,7 +122,7 @@ class LiebedEnv(HOIEnv):
         robot_xy = torch.zeros((N, 2), device=device)
         obj_xy   = torch.zeros((N, 2), device=device)
         obj_yaw  = torch.zeros((N,),   device=device)
-        use_default_quat = torch.zeros((N,), dtype=torch.bool, device=device)  # 失败时使用默认四元数
+        use_default_quat = torch.zeros((N,), dtype=torch.bool, device=device)              
 
         def _sample_xy(cx: float, cy: float, r_keepout: float):
             x_lo, x_hi = cx - (half_x - r_keepout), cx + (half_x - r_keepout)
@@ -149,7 +149,7 @@ class LiebedEnv(HOIEnv):
                     break
 
             if not placed:
-                # 采样失败：默认局部状态 + env 原点
+                                      
                 robot_xy[i, 0] = cx + float(root_state[i, 0].item())
                 robot_xy[i, 1] = cy + float(root_state[i, 1].item())
                 obj_xy[i, 0] = cx + float(obj_state[i, 0].item())
@@ -157,19 +157,19 @@ class LiebedEnv(HOIEnv):
                 obj_yaw[i] = 0.0
                 use_default_quat[i] = True
 
-            # robot 世界位姿
+                        
             world_z = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
             root_state[i, 0] = robot_xy[i, 0]
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = world_z
 
-            # obj 世界位姿
+                      
             obj_world_z = cz + (obj_state[i, 2].item() if obj_state.ndim == 2 else 0.0)
             obj_state[i, 0] = obj_xy[i, 0]
             obj_state[i, 1] = obj_xy[i, 1]
             obj_state[i, 2] = obj_world_z
 
-        # 写回仿真
+              
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
@@ -182,15 +182,15 @@ class LiebedEnv(HOIEnv):
         obj_root_pose = torch.cat([obj_state[:, :3], obj_quat], dim=-1)
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
-        # 只清被重置 env 的计数与观测缓存
+                            
         if hasattr(self, "_counted_mask"):
             self._counted_mask[env_ids] = False
         if hasattr(self, "_last_obs"):
             for k in self._last_obs:
                 self._last_obs[k][env_ids] = 0.0
-        self.done_flag = False  # 新 episode
+        self.done_flag = False             
 
-        # 连续成功计数清零
+                  
         self._succ_streak[env_ids] = 0
 
     def _get_dims(self, env_ids: Sequence[int] | None = None):
@@ -282,45 +282,45 @@ class LiebedEnv(HOIEnv):
         """
         device = self.device
 
-        # 超时（truncation）
+                        
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
 
-        # 取接触体（骨盆）位置与速度
+                       
         names = self.robot.data.body_names
         cand = self.cfg.contact_body
         self._contact_index = names.index(cand)
         contact_pos = self.robot.data.body_link_pos_w[:, self._contact_index]      # (N,3)
         contact_lin = self.robot.data.body_link_lin_vel_w[:, self._contact_index]  # (N,3)
 
-        # 床面高度（采用与训练一致的“中心 + 半高”方式，避免与 env 原点/偏置耦合）
+                                                   
         if getattr(self.cfg, "seat_height", None) is not None:
             seat_z = torch.as_tensor(self.cfg.seat_height, device=device).expand_as(contact_pos[:, 2])
         else:
-            # 懒加载 size_aabb 的半高
+                               
             if (self._obj_half_height_z is None) or (self._obj_half_height_z.shape[0] != self.num_envs):
                 dims = self._get_dims(None)["size_aabb"][:, 2].to(device)
                 self._obj_half_height_z = 0.5 * dims
             seat_z = self.obj.data.root_pos_w[:, 2] + self._obj_half_height_z
 
-        # 误差/约束
+               
         vertical_gap = (contact_pos[:, 2] - seat_z).abs()
         obj_pos_w    = self.obj.data.root_pos_w
         dist_xy      = torch.linalg.norm((obj_pos_w - contact_pos)[:, :2], dim=-1)
         slow_enough  = contact_lin.norm(dim=-1) < self._lie_vel_thr
 
-        # 单帧是否满足
+                
         cond_now = (vertical_gap < self._lie_thr_z) & (dist_xy < self._lie_thr_xy) & slow_enough
 
-        # 连续保持计数（满足则 +1，否则清零）
+                             
         self._succ_streak = torch.where(cond_now, self._succ_streak + 1, torch.zeros_like(self._succ_streak))
 
-        # 成功：连续保持到阈值
+                    
         done_success = self._succ_streak >= self._eval_hold_steps
 
-        # 成功优先（互斥），不要把成功同时算作超时
+                              
         time_out = time_out & (~done_success)
 
-        # —— 统计（仅新完成那一帧计数）——
+                            
         completed_now = done_success | time_out
         if not hasattr(self, "_counted_mask"):
             self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
@@ -349,7 +349,7 @@ class LiebedEnv(HOIEnv):
             total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
             self.stat_avg_time = total_time / self.stat_completed
 
-        # 对于已经判成功/超时的 env，后续帧不再重复计数
+                                   
         self._counted_mask |= completed_now
         return done_success, time_out
 
@@ -379,7 +379,7 @@ class LiebedEnv(HOIEnv):
         self.reset_buf = self.reset_terminated | self.reset_time_outs
         self.reward_buf = self._get_rewards()
 
-        # 仅当“所有 env 完成”时整体 reset
+                                
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) == self.num_envs:
             self._reset_idx(reset_env_ids)
@@ -400,14 +400,14 @@ class LiebedEnv(HOIEnv):
 
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
-    # ====== 预物理步：先调父类，再健壮化 + 冻结已完成 env 的动作 ======
+                                                  
     def _pre_physics_step(self, actions: torch.Tensor):
 
-        # 数值健壮化与裁剪
+                  
         self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
-        # 已完成 env 动作冻结（保持当前关节位姿）
+                                
         completed = getattr(self, "_counted_mask", None)
         if completed is not None and completed.any():
             q_current = self.robot.data.joint_pos
@@ -415,7 +415,7 @@ class LiebedEnv(HOIEnv):
             a_freeze = a_freeze.clamp_(-1.0, 1.0)
             self.actions[completed] = a_freeze[completed]
 
-    # ====== 观测：对完成 env 复用上一帧，避免噪声 ======
+                                         
     def _get_observations(self) -> VecEnvObs:
         device = self.device
         ndof = self.robot.data.joint_pos.shape[1]
@@ -423,7 +423,7 @@ class LiebedEnv(HOIEnv):
         q  = self.robot.data.joint_pos
         qd = self.robot.data.joint_vel
 
-        # 统一用 body_link_*；否则回退根链接
+                                 
         if hasattr(self, "ref_body_index"):
             rb = int(self.ref_body_index)
             root_pos_w  = self.robot.data.body_link_pos_w[:, rb]
@@ -488,5 +488,5 @@ class LiebedEnv(HOIEnv):
         self.done_flag = new_flag
 
     def _get_rewards(self) -> torch.Tensor:
-        # Eval：奖励不用于决策，返回全 0（形状: [num_envs]）
+                                            
         return torch.zeros(self.num_envs, device=self.device)

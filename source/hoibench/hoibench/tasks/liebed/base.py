@@ -12,15 +12,15 @@ from isaaclab.envs.common import VecEnvObs, VecEnvStepReturn
 
 class HOIEnvCfg(DirectRLEnvCfg):
     seed: int = 0
-    # --- 每秒的帧率:dt*decimation ---
+                                 
     decimation: int = 2
     dt: float = 1 / 120
     episode_length_s: float = 20.0
 
-    # --- 场景 ---
+                
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=12.0, replicate_physics=True)
 
-    # --- 物理/仿真 ---
+                   
     sim: SimulationCfg = SimulationCfg(
         dt=dt,
         render_interval=decimation,
@@ -30,7 +30,7 @@ class HOIEnvCfg(DirectRLEnvCfg):
         ),
     )
 
-    # 先占位
+         
     observation_space = 1
     action_space = 1
     state_space = 0

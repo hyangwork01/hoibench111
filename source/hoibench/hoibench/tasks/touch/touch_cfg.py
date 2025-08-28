@@ -13,12 +13,12 @@ from isaaclab_assets import HUMANOID_28_CFG, G1_CFG, H1_CFG
 @configclass
 class TouchEnvCfg(HOIEnvCfg):
 
-    # --- 目标标记：红色小球（仅可见、不可碰撞、运动学体） ---
+                                      
     goal: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Goal",
         spawn=sim_utils.SphereCfg(
             radius=0.03,
-            # 仅可见：关闭碰撞，不设置质量；使用 preview surface 材质着色为红色
+                                                       
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True, kinematic_enabled=True,

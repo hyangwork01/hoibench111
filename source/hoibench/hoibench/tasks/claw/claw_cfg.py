@@ -14,14 +14,14 @@ from isaaclab_assets import HUMANOID_28_CFG, G1_CFG, H1_CFG
 class ClawEnvCfg(HOIEnvCfg):
     """Claw 任务环境配置：包含一张桌子（table）与一个可移动玩具（toy）。"""
 
-    # 桌子：仅作为支撑/放置面；可见、可碰撞、通常设为运动学体（不受力学驱动）
+                                          
     table: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Table",
         spawn=sim_utils.UsdFileCfg(
             usd_path="/home/luohy/MyRepository/MyDataSets/Data/Object/table/3FO3WQT7FQR5/Instance.usda",  
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True,
-                kinematic_enabled=True,     # 作为“静态几何”使用（可通过根姿态移动，但不受力学）
+                kinematic_enabled=True,                                 
                 angular_damping=0.0,
                 linear_damping=0.0,
                 max_linear_velocity=100.0,
@@ -34,25 +34,25 @@ class ClawEnvCfg(HOIEnvCfg):
                 rest_offset=0.0,
             ),
             mass_props=sim_utils.MassPropertiesCfg(
-                # 桌子作为大件，质量/密度给大一点以避免被小物件“顶飞”
+                                             
                 density=2000.0
             ),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            # 放在每个 env 的示例位置；具体以你的 USD 尺寸为准再调整
+                                              
             pos=(1.5, 1.5, 0.75),
             rot=(0.0, 0.0, 0.0, 1.0),  # wxyz
         ),
     )
 
-    # 玩具：作为被抓取/推动的目标物；可碰撞、动态刚体（非 kinematic）
+                                           
     toy: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Toy",
         spawn=sim_utils.UsdFileCfg(
             usd_path="/home/luohy/MyRepository/MyDataSets/Data/Object/Toy/3FO3NNCTMYLD/Instance.usda", 
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True,
-                kinematic_enabled=False,    # 让它受物理驱动（可被抓/推/移动）
+                kinematic_enabled=False,                       
                 angular_damping=0.05,
                 linear_damping=0.01,
                 max_linear_velocity=100.0,
@@ -65,21 +65,21 @@ class ClawEnvCfg(HOIEnvCfg):
                 rest_offset=0.0,
             ),
             mass_props=sim_utils.MassPropertiesCfg(
-                density=500.0  # 适中；可按真实玩具调整
+                density=500.0               
             ),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
-            pos=(1.5, 1.5, 1.0),           # 例：在桌面上方一些，避免初始相交
+            pos=(1.5, 1.5, 1.0),                             
             rot=(0.0, 0.0, 0.0, 1.0),      # wxyz
         ),
     )
 
-    # --- 目标标记：红色小球（仅可见、不可碰撞、运动学体） ---
+                                      
     goal: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Goal",
         spawn=sim_utils.SphereCfg(
             radius=0.03,
-            # 仅可见：关闭碰撞，不设置质量；使用 preview surface 材质着色为红色
+                                                       
             collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True, kinematic_enabled=True,
@@ -94,7 +94,7 @@ class ClawEnvCfg(HOIEnvCfg):
             rot=(1.0, 0.0, 0.0, 0.0),  # wxyz
         ),
     )
-# —— 以下派生类保持原有结构，方便替换到你现有工程中使用 ——
+                                 
 
 
 @configclass

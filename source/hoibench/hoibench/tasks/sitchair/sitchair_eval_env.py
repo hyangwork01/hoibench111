@@ -27,9 +27,9 @@ class SitchairEnv(HOIEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         ndof = self.robot.data.joint_pos.shape[1]
-        # 自身体态：关节 + 根高 + 根姿(6D) + 根线/角速
+                                       
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3
-        # 交互体态：中心点 + 长宽高 + 四元数
+                              
         inter_dim = 10
         goal_dim = 2
         obs_dim = base_self_dim + inter_dim + goal_dim
@@ -38,7 +38,7 @@ class SitchairEnv(HOIEnv):
         self.cfg.observation_space = obs_dim
         self._configure_gym_env_spaces()
 
-        # --------- 动作缩放 ----------
+                                   
         dof_lower = self.robot.data.soft_joint_pos_limits[0, :, 0]
         dof_upper = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper + dof_lower)
@@ -52,13 +52,13 @@ class SitchairEnv(HOIEnv):
 
         self.done_flag = False
 
-        # >>> CHANGED: 默认阈值/偏置（也可在 cfg 中覆盖）
-        self._sit_thr_z = float(getattr(self.cfg, "sit_distance_threshold", 0.05))   # 更紧 0.05m
-        self._sit_thr_xy = float(getattr(self.cfg, "sit_xy_threshold", 0.35))       # XY 半径
-        self._sit_vel_thr = float(getattr(self.cfg, "sit_vel_threshold", 0.2))      # 骨盆速度阈值
-        self._seat_offset_z = float(getattr(self.cfg, "seat_offset_z", 0.45))       # AABB 底面向上偏置
+                                           
+        self._sit_thr_z = float(getattr(self.cfg, "sit_distance_threshold", 0.05))             
+        self._sit_thr_xy = float(getattr(self.cfg, "sit_xy_threshold", 0.35))              
+        self._sit_vel_thr = float(getattr(self.cfg, "sit_vel_threshold", 0.2))              
+        self._seat_offset_z = float(getattr(self.cfg, "seat_offset_z", 0.45))                    
 
-    # ----------------- 场景构建 -----------------
+                                              
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
         self.obj = RigidObject(self.cfg.obj)
@@ -79,7 +79,7 @@ class SitchairEnv(HOIEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-    # ----------------- 重置（Eval：仅在需要时整体重置） -----------------
+                                                            
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
@@ -97,7 +97,7 @@ class SitchairEnv(HOIEnv):
         obj_info = self._get_dims(env_ids)
         obj_r_all = obj_info["keepout_radius_xy"]  # shape (N,)
 
-        # 默认状态（局部 env 坐标）
+                         
         root_state = self.robot.data.default_root_state[env_ids].clone()  # (N, 13)
         joint_pos  = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel  = self.robot.data.default_joint_vel[env_ids].clone()
@@ -109,7 +109,7 @@ class SitchairEnv(HOIEnv):
         robot_xy = torch.zeros((N, 2), device=device)
         obj_xy   = torch.zeros((N, 2), device=device)
         obj_yaw  = torch.zeros((N,),   device=device)
-        use_default_quat = torch.zeros((N,), dtype=torch.bool, device=device)  # 失败时使用默认四元数
+        use_default_quat = torch.zeros((N,), dtype=torch.bool, device=device)              
 
         def _sample_xy(cx: float, cy: float, r_keepout: float):
             x_lo, x_hi = cx - (half_x - r_keepout), cx + (half_x - r_keepout)
@@ -136,7 +136,7 @@ class SitchairEnv(HOIEnv):
                     break
 
             if not placed:
-                # 采样失败：默认局部状态 + env 原点
+                                      
                 robot_xy[i, 0] = cx + float(root_state[i, 0].item())
                 robot_xy[i, 1] = cy + float(root_state[i, 1].item())
                 obj_xy[i, 0] = cx + float(obj_state[i, 0].item())
@@ -144,19 +144,19 @@ class SitchairEnv(HOIEnv):
                 obj_yaw[i] = 0.0
                 use_default_quat[i] = True
 
-            # robot 世界位姿
+                        
             world_z = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
             root_state[i, 0] = robot_xy[i, 0]
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = world_z
 
-            # obj 世界位姿
+                      
             obj_world_z = cz + (obj_state[i, 2].item() if obj_state.ndim == 2 else 0.0)
             obj_state[i, 0] = obj_xy[i, 0]
             obj_state[i, 1] = obj_xy[i, 1]
             obj_state[i, 2] = obj_world_z
 
-        # 写回仿真
+              
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
@@ -169,15 +169,15 @@ class SitchairEnv(HOIEnv):
         obj_root_pose = torch.cat([obj_state[:, :3], obj_quat], dim=-1)
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
-        # 只清被重置 env 的计数与观测缓存
+                            
         if hasattr(self, "_counted_mask"):
             self._counted_mask[env_ids] = False
         if hasattr(self, "_last_obs"):
             for k in self._last_obs:
                 self._last_obs[k][env_ids] = 0.0
-        self.done_flag = False  # 新 episode
+        self.done_flag = False             
 
-        # >>> CHANGED: 预计算本批 env 的 AABB z_min，供 _get_dones 使用
+                                                             
         dims_all = self._get_dims(env_ids)
         self._aabb_min_z_local = dims_all["aabb_min"][:, 2]  # (N,)
 
@@ -264,24 +264,24 @@ class SitchairEnv(HOIEnv):
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         device = self.device
 
-        # 超时（truncation）
+                        
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
 
-        # 成功：更严格
+                
         names = self.robot.data.body_names
         cand = self.cfg.contact_body
         self._contact_index = names.index(cand)
 
-        # 统一使用 body_link_* 字段（姿态/速度）
+                                    
         contact_pos = self.robot.data.body_link_pos_w[:, self._contact_index]      # (N,3)
         contact_lin = self.robot.data.body_link_lin_vel_w[:, self._contact_index]  # (N,3)
 
-        # >>> CHANGED: 椅面高度 seat_z
+                                  
         if getattr(self.cfg, "seat_height", None) is not None:
             seat_z = torch.as_tensor(self.cfg.seat_height, device=device).expand_as(contact_pos[:, 2])
         else:
-            # aabb_min_z + seat_offset_z（避免用“半高”导致等于骨盆）
-            # 如果 _aabb_min_z_local 不存在，则即时计算
+                                                       
+                                            
             if not hasattr(self, "_aabb_min_z_local") or self._aabb_min_z_local.shape[0] != self.num_envs:
                 dims = self._get_dims(None)
                 self._aabb_min_z_local = dims["aabb_min"][:, 2].to(device)
@@ -289,15 +289,15 @@ class SitchairEnv(HOIEnv):
 
         vertical_gap = (contact_pos[:, 2] - seat_z).abs()
 
-        # >>> CHANGED: 加入 XY 距离与速度约束
+                                    
         obj_pos_w = self.obj.data.root_pos_w
         dist_xy = torch.linalg.norm((obj_pos_w - contact_pos)[:, :2], dim=-1)
         slow_enough = contact_lin.norm(dim=-1) < self._sit_vel_thr
 
         done_success = (vertical_gap < self._sit_thr_z) & (dist_xy < self._sit_thr_xy) & slow_enough
-        time_out = time_out & (~done_success)  # 成功优先（互斥）
+        time_out = time_out & (~done_success)            
 
-        # 统计：只在新完成那一帧计数
+                       
         completed_now = done_success | time_out
         if not hasattr(self, "_counted_mask"):
             self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
@@ -348,7 +348,7 @@ class SitchairEnv(HOIEnv):
                 self.sim.render()
             self.scene.update(dt=self.physics_dt)
 
-        # 计数由框架也会维护，这里沿用你的做法
+                            
         self.episode_length_buf += 1
         self.common_step_counter += 1
 
@@ -356,7 +356,7 @@ class SitchairEnv(HOIEnv):
         self.reset_buf = self.reset_terminated | self.reset_time_outs
         self.reward_buf = self._get_rewards()
 
-        # 仅当“所有 env 完成”时整体 reset
+                                
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) == self.num_envs:
             self._reset_idx(reset_env_ids)
@@ -377,15 +377,15 @@ class SitchairEnv(HOIEnv):
 
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
-    # ====== 预物理步：先调父类，再健壮化 + 冻结已完成 env 的动作 ======
+                                                  
     def _pre_physics_step(self, actions: torch.Tensor):
-        # >>> CHANGED: 先调父类，确保 self.actions=actions
+                                                   
 
-        # 数值健壮化与裁剪
+                  
         self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
-        # 已完成 env 动作冻结（保持当前关节位姿）
+                                
         completed = getattr(self, "_counted_mask", None)
         if completed is not None and completed.any():
             q_current = self.robot.data.joint_pos
@@ -393,7 +393,7 @@ class SitchairEnv(HOIEnv):
             a_freeze = a_freeze.clamp_(-1.0, 1.0)
             self.actions[completed] = a_freeze[completed]
 
-    # ====== 观测：对完成 env 复用上一帧，避免噪声 ======
+                                         
     def _get_observations(self) -> VecEnvObs:
         device = self.device
         ndof = self.robot.data.joint_pos.shape[1]
@@ -401,7 +401,7 @@ class SitchairEnv(HOIEnv):
         q  = self.robot.data.joint_pos
         qd = self.robot.data.joint_vel
 
-        # 统一用 body_link_*；否则回退根链接
+                                 
         if hasattr(self, "ref_body_index"):
             rb = int(self.ref_body_index)
             root_pos_w  = self.robot.data.body_link_pos_w[:, rb]
@@ -466,5 +466,5 @@ class SitchairEnv(HOIEnv):
         self.done_flag = new_flag
 
     def _get_rewards(self) -> torch.Tensor:
-        # Eval：奖励不用于决策，返回全 0（形状: [num_envs]）
+                                            
         return torch.zeros(self.num_envs, device=self.device)

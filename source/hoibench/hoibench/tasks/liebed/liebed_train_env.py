@@ -44,10 +44,10 @@ class LiebedEnv(HOIEnv):
         self.total_time = 0.0
         self.total_completed = 0
 
-        # 历史缓存：进度 shaping（-1 表示未初始化）
+                                    
         self._prev_xy_dist = torch.full((self.num_envs,), -1.0, device=self.device)
 
-    # ----------------- 场景构建 -----------------
+                                              
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
         self.obj = RigidObject(self.cfg.obj)
@@ -68,7 +68,7 @@ class LiebedEnv(HOIEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-    # ----------------- 重置（训练：逐 env） -----------------
+                                                      
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
@@ -85,11 +85,11 @@ class LiebedEnv(HOIEnv):
         max_trials = 1000
         yaw_range = pi
 
-        # 物体占地半径（逐 env）
+                       
         obj_info = self._get_dims(env_ids)
         obj_r_all = obj_info["keepout_radius_xy"]  # (N,)
 
-        # 默认状态（局部坐标）
+                    
         root_state = self.robot.data.default_root_state[env_ids].clone()  # (N,13)
         joint_pos = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel = self.robot.data.default_joint_vel[env_ids].clone()
@@ -145,12 +145,12 @@ class LiebedEnv(HOIEnv):
             obj_state[i, 1] = obj_xy[i, 1]
             obj_state[i, 2] = obj_world_z
 
-        # 写回：根姿态/速度/关节
+                      
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
-        # 物体：四元数 yaw-only（wxyz）
+                               
         cos, sin = torch.cos(0.5 * obj_yaw), torch.sin(0.5 * obj_yaw)
         obj_quat_rand = torch.stack([cos, torch.zeros_like(cos), torch.zeros_like(cos), sin], dim=-1)
         obj_quat_default = obj_state[:, 3:7]
@@ -158,14 +158,14 @@ class LiebedEnv(HOIEnv):
         obj_root_pose = torch.cat([obj_state[:, :3], obj_quat], dim=-1)
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
-        # 清计数掩码 + 清上帧观测缓存（仅重置到这些 env）
+                                     
         if hasattr(self, "_counted_mask"):
             self._counted_mask[env_ids] = False
         if hasattr(self, "_last_obs"):
             for k in self._last_obs:
                 self._last_obs[k][env_ids] = 0.0
 
-        # 重置这些 env 的进度缓存
+                        
         if hasattr(self, "_prev_xy_dist"):
             self._prev_xy_dist[env_ids] = -1.0
 
@@ -247,28 +247,28 @@ class LiebedEnv(HOIEnv):
             "keepout_radius_xy": keepout_radius_xy,
         }
 
-    # === 完成与超时判定 ===
+                     
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         device = self.device
 
-        # 超时（truncation）
+                        
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
 
-        # —— 成功判定 —— 
-        # [MOD] 改为更通用的表面距离阈值；默认值更合理（2cm）
+                     
+                                        
         thr = float(getattr(self.cfg, "surface_distance_threshold", 0.02))  # [MOD]
 
-        # 成功冷启动：前若干步不算成功
+                        
         min_success_steps = int(getattr(self.cfg, "min_success_steps", 10))
         allow_success = (self.episode_length_buf >= min_success_steps)
 
-        # 取接触体（骨盆）世界位置
+                      
         names = self.robot.data.body_names
         cand = self.cfg.contact_body
         self._contact_index = names.index(cand)
         contact_pos = self.robot.data.body_link_pos_w[:, self._contact_index]  # (N, 3)
 
-        # 床面高度：优先 bed_height；其次 seat_height；否则由 AABB 推断
+                                                       
         height_val = getattr(self.cfg, "bed_height", getattr(self.cfg, "seat_height", None))  # [MOD]
         if height_val is not None:  # [MOD]
             seat_z = torch.as_tensor(height_val, device=device).expand_as(contact_pos[:, 2])   # [MOD]
@@ -280,24 +280,24 @@ class LiebedEnv(HOIEnv):
 
         vertical_gap = (contact_pos[:, 2] - seat_z).abs()
 
-        # [MOD] 平躺姿态判据：根 z 轴与世界向上（或床面法向）对齐
+                                          
         root_pos = self.robot.data.root_link_pos_w
         root_quat = self.robot.data.root_link_quat_w
         ex = torch.zeros_like(root_pos); ex[:, 0] = 1.0
         ez = torch.zeros_like(root_pos); ez[:, 2] = 1.0
-        normal = quat_apply(root_quat, ez)  # 根的 z 轴（世界系）
+        normal = quat_apply(root_quat, ez)               
         world_up = torch.zeros_like(root_pos); world_up[:, 2] = 1.0
         cos_flat = F.cosine_similarity(normal, world_up, dim=-1)
         flat_cos_threshold = float(getattr(self.cfg, "flat_cos_threshold", 0.95))  # [MOD]
         flat_ok = cos_flat > flat_cos_threshold  # [MOD]
 
-        # 只有超过冷启动步数才允许判成功
+                         
         done_success = (vertical_gap < thr) & allow_success & flat_ok  # [MOD]
 
-        # 成功优先（不要同时标记超时）
+                        
         time_out = time_out & (~done_success)
 
-        # 统计与边沿触发
+                 
         completed_now = done_success | time_out
         if not hasattr(self, "_counted_mask"):
             self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
@@ -334,7 +334,7 @@ class LiebedEnv(HOIEnv):
         if self.cfg.action_noise_model:
             action = self._action_noise_model(action)
 
-        # 父类预处理（裁剪/缓存等）
+                       
         self._pre_physics_step(action)
 
         is_rendering = self.sim.has_gui() or self.sim.has_rtx_sensors()
@@ -348,7 +348,7 @@ class LiebedEnv(HOIEnv):
                 self.sim.render()
             self.scene.update(dt=self.physics_dt)
 
-        # 计数
+            
         self.episode_length_buf += 1
         self.common_step_counter += 1
 
@@ -357,7 +357,7 @@ class LiebedEnv(HOIEnv):
         self.reset_buf = self.reset_terminated | self.reset_time_outs
         self.reward_buf = self._get_rewards()
 
-        # —— 训练：逐 env 重置（重要）——
+                              
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) > 0:
             self._reset_idx(reset_env_ids)
@@ -366,33 +366,33 @@ class LiebedEnv(HOIEnv):
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
 
-        # 事件
+            
         if self.cfg.events:
             if "interval" in self.event_manager.available_modes:
                 self.event_manager.apply(mode="interval", dt=self.step_dt)
 
-        # 观测
+            
         self.obs_buf = self._get_observations()
 
-        # 观测噪声（不加到 critic state）
+                                
         if self.cfg.observation_noise_model:
             self.obs_buf["policy"] = self._observation_noise_model(self.obs_buf["policy"])
 
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
-    # 训练版：不冻结已完成 env 的动作（保留简单位置控制）
+                                  
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    # 训练版观测：不做“完成冻结”，统一按当前真值构造
+                              
     def _get_observations(self) -> VecEnvObs:
         device = self.device
         ndof = self.robot.data.joint_pos.shape[1]
         q = self.robot.data.joint_pos
         qd = self.robot.data.joint_vel
 
-        # 参考刚体：优先 cfg.reference_body -> root_link
+                                                 
         ref_name = getattr(self.cfg, "reference_body", None)
         names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
         if ref_name and (ref_name in names):
@@ -411,12 +411,12 @@ class LiebedEnv(HOIEnv):
         ez = torch.zeros_like(root_pos_w); ez[:, 2] = 1.0
         tangent = quat_apply(root_quat_w, ex)
         normal = quat_apply(root_quat_w, ez)
-        root_rot_6d = torch.cat([tangent, normal], dim=-1)  # 6D 连续姿态表示（更易学习）  # noqa
+        root_rot_6d = torch.cat([tangent, normal], dim=-1)                           
         root_z = root_pos_w[:, 2:3]
 
         obj_pos_w = self.obj.data.root_pos_w
         obj_quat_w = self.obj.data.root_quat_w
-        obj_center_rel = obj_pos_w - root_pos_w  # 相对“根”的位移（与奖励/goal 对齐）  # [MOD]
+        obj_center_rel = obj_pos_w - root_pos_w                                  
 
         if not hasattr(self, "_cached_obj_size_obb") or self._cached_obj_size_obb.shape[0] != self.num_envs:
             self._cached_obj_size_obb = self._get_dims(None)["size_obb"].to(device)
@@ -424,25 +424,25 @@ class LiebedEnv(HOIEnv):
 
         self_part = torch.cat([q, qd, root_z, root_rot_6d, root_lin_w, root_ang_w], dim=-1)
         inter_part = torch.cat([obj_center_rel, obj_size_obb, obj_quat_w], dim=-1)
-        goal_part = obj_center_rel[:, :2]  # 物体中心（相对根）的 XY 作为 goal  # [MOD]
+        goal_part = obj_center_rel[:, :2]                                  
         policy_obs = torch.cat([self_part, inter_part, goal_part], dim=-1)
 
-        # [MOD] 断言观测维度一致，便于早期发现错配
+                                 
         if isinstance(self.cfg.observation_space, int):
-            assert policy_obs.shape[1] == self.cfg.observation_space, \
+            assert policy_obs.shape[1] == self.cfg.observation_space,\
                 f"Obs length mismatch: got {policy_obs.shape[1]}, expect {self.cfg.observation_space}"
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
         self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
-    # 预物理步处理（健壮化 + 裁剪）
+                      
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions
         self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
-    # === 奖励函数 ===
+                  
     def _get_rewards(self) -> torch.Tensor:
         """
         组合型奖励（默认权重可按需迁到 cfg）：
@@ -465,7 +465,7 @@ class LiebedEnv(HOIEnv):
         w_height        = 2.0
         w_heading       = 0.5
         w_stable        = 0.5
-        w_goal_xy       = 1.0  # [MOD] 新增 goal 奖励权重
+        w_goal_xy       = 1.0                      
 
         w_action        = 2.5e-3
         w_qd            = 1.0e-4
@@ -475,8 +475,8 @@ class LiebedEnv(HOIEnv):
         penalty_timeout = 1.0
         step_time_pen   = 0.01
 
-        # ---------- 提取状态 ----------
-        # 参考刚体（与观测构造一致）
+                                    
+                       
         if hasattr(self, "ref_body_index"):
             rb = int(self.ref_body_index)
             root_pos_w  = self.robot.data.body_link_pos_w[:, rb]
@@ -500,18 +500,18 @@ class LiebedEnv(HOIEnv):
 
         obj_pos_w  = self.obj.data.root_pos_w
 
-        # 骨盆（接触体）—— 用于竖直高度判据
+                            
         pelvis_idx = self.robot.data.body_names.index(self.cfg.contact_body)
         pelvis_pos = self.robot.data.body_link_pos_w[:, pelvis_idx]
 
-        # [MOD] 统一：以“根”为参考计算 XY 误差与朝向
+                                     
         to_obj_root   = obj_pos_w - root_pos_w                  # [MOD]
         diff_xy       = to_obj_root[:, :2]                      # [MOD]
         dist_xy       = torch.linalg.norm(diff_xy, dim=-1)      # [MOD]
-        goal_xy       = diff_xy                                 # 与 obs 的 goal 完全一致  # [MOD]
+        goal_xy       = diff_xy                                                             
         dist_goal     = torch.linalg.norm(goal_xy, dim=-1)      # [MOD]
 
-        # 床面高度（与 _get_dones 同步）
+                               
         height_val = getattr(self.cfg, "bed_height", getattr(self.cfg, "seat_height", None))
         if height_val is not None:
             seat_z = torch.as_tensor(height_val, device=device).expand_as(pelvis_pos[:, 2])
@@ -522,40 +522,40 @@ class LiebedEnv(HOIEnv):
             seat_z = self.obj.data.root_pos_w[:, 2] + self._obj_half_height_z
         gap_z = (pelvis_pos[:, 2] - seat_z).abs()
 
-        # 朝向：根 x 轴与目标方向（XY）夹角的 cos
+                                  
         ex = torch.zeros_like(root_pos_w); ex[:, 0] = 1.0
         tangent = quat_apply(root_quat_w, ex)
         to_obj_xy   = F.normalize(diff_xy, dim=-1)              # [MOD]
         heading_xy  = F.normalize(tangent[:, :2], dim=-1)
         cos_heading = (heading_xy * to_obj_xy).sum(-1).clamp(-1.0, 1.0)
 
-        # ---------- 各项奖励 ----------
-        # 势能型进度：prev_dist - cur_dist（首次步用当前距离初始化，避免虚假负分）
+                                    
+                                                        
         prev = torch.where(self._prev_xy_dist < 0.0, dist_xy.detach(), self._prev_xy_dist)
         r_progress = w_progress * (prev - dist_xy)
         self._prev_xy_dist = dist_xy.detach()
 
-        # RBF 形式的对齐奖励（平滑且可微）
+                            
         sigma_xy = 0.30
         sigma_z  = 0.20
         r_align_xy = w_align_xy * torch.exp(-dist_xy / (sigma_xy + eps))
         r_height   = w_height   * torch.exp(-gap_z   / (sigma_z  + eps))
 
-        # 朝向 [0,1]
+                  
         r_heading = w_heading * (0.5 * (cos_heading + 1.0))
 
-        # 近床稳定（竖直差 < 0.15m 时抑制根速度）
+                                  
         near_mask = (gap_z < 0.15).float()
         r_stable = w_stable * near_mask * (
             1.0 / (1.0 + root_lin_w.norm(dim=-1)) + 1.0 / (1.0 + root_ang_w.norm(dim=-1))
         )
 
-        # 正则化惩罚
+               
         p_action = w_action * (self.actions ** 2).sum(dim=-1)
         qd = self.robot.data.joint_vel
         p_qd = w_qd * (qd ** 2).sum(dim=-1)
 
-        # 接近软限位惩罚（95% 以后）
+                         
         lower = self.robot.data.soft_joint_pos_limits[0, :, 0]
         upper = self.robot.data.soft_joint_pos_limits[0, :, 1]
         q     = self.robot.data.joint_pos
@@ -563,17 +563,17 @@ class LiebedEnv(HOIEnv):
         margin = torch.clamp(0.95 - torch.minimum(rel, 1 - rel), min=0.0)
         p_limits = w_limits * (margin ** 2).sum(dim=-1)
 
-        # 事件项
+             
         bonus = torch.zeros_like(dist_xy)
         if hasattr(self, "reset_terminated"):
             bonus = bonus + bonus_success * self.reset_terminated.float()
         if hasattr(self, "reset_time_outs"):
             bonus = bonus - penalty_timeout * self.reset_time_outs.float()
 
-        # 每步小负激励
+                
         step_pen = step_time_pen * torch.ones_like(dist_xy)
 
-        # [MOD] goal 距离奖励：距离越小越接近 1
+                                   
         sigma_goal = 0.30
         r_goal_xy  = w_goal_xy * torch.exp(-dist_goal / (sigma_goal + eps))
 
@@ -584,7 +584,7 @@ class LiebedEnv(HOIEnv):
         )
         reward = torch.nan_to_num(reward, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # 记录项均值，便于 logger / Hydra / 可视化
+                                       
         self.extras["r_terms"] = {
             "progress": r_progress.mean().item(),
             "align_xy": r_align_xy.mean().item(),

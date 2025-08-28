@@ -29,42 +29,42 @@ class ClawEnv(HOIEnv):
 
         super().__init__(cfg, render_mode, **kwargs)
 
-        # === 观测维度（保持 __init__ 里原声明不变）===
+                                         
         ndof = self.robot.data.joint_pos.shape[1]
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3   # q, qd, root_z, root_rot6d, root_lin, root_ang
         inter_dim = 10                              # toy_center_rel(3)+size_obb(3)+toy_quat(4)
-        goal_dim = 2                                # goal_rel_xy（见 _get_observations）
+        goal_dim = 2                                                                  
         obs_dim = base_self_dim + inter_dim + goal_dim
 
         self.cfg.action_space = ndof
         self.cfg.observation_space = obs_dim
         self._configure_gym_env_spaces()
 
-        # 动作缩放
+              
         dof_lower = self.robot.data.soft_joint_pos_limits[0, :, 0]
         dof_upper = self.robot.data.soft_joint_pos_limits[0, :, 1]
         self.action_offset = 0.5 * (dof_upper + dof_lower)
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
-        # 统计
+            
         self.total_time = 0.0
         self.total_completed = 0
 
-        # 进度缓存（保留；本版本奖励未使用）
+                           
         self._prev_xy_dist = torch.full((self.num_envs,), -1.0, device=self.device)
 
-        # 目标点（世界系 XY）
+                     
         self._goal_xy_w = torch.zeros((self.num_envs, 2), device=self.device)
 
-    # ----------------- 场景构建 -----------------
+                                              
     def _setup_scene(self):
-        # 机器人与物体
+                
         self.robot = Articulation(self.cfg.robot)
         self.table = RigidObject(self.cfg.table)
         self.toy   = RigidObject(self.cfg.toy)
-        self.goal  = RigidObject(self.cfg.goal)  # 可视化：kinematic & no-collision
+        self.goal  = RigidObject(self.cfg.goal)                                
 
-        # 地面 & 场景克隆
+                   
         spawn_ground_plane(
             prim_path="/World/ground",
             cfg=GroundPlaneCfg(
@@ -77,17 +77,17 @@ class ClawEnv(HOIEnv):
         if self.device == "cpu":
             self.scene.filter_collisions(global_prim_paths=["/World/ground"])
 
-        # 注册
+            
         self.scene.articulations["robot"] = self.robot
         self.scene.rigid_objects["table"] = self.table
         self.scene.rigid_objects["toy"]   = self.toy
         self.scene.rigid_objects["goal"]  = self.goal
 
-        # 灯光
+            
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
-    # ----------------- AABB/OBB 工具（沿用原结构，分别获取 toy/table 尺寸） -----------------
+                                                                              
     def _get_dims_for(self, obj: RigidObject, env_ids: Sequence[int] | None = None):
         """返回 obj 在各个 env 的 AABB/OBB 尺寸等信息。"""
         import numpy as np
@@ -163,7 +163,7 @@ class ClawEnv(HOIEnv):
             "keepout_radius_xy": keepout_radius_xy,
         }
 
-    # ----------------- 重置（逐 env） -----------------
+                                                   
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, dtype=torch.int32, device=self.device)
@@ -180,11 +180,11 @@ class ClawEnv(HOIEnv):
         max_trials = 1000
         yaw_range = pi
 
-        # 尺寸
+            
         table_dims = self._get_dims_for(self.table, env_ids)
         toy_dims   = self._get_dims_for(self.toy,   env_ids)
 
-        # 默认状态
+              
         root_state  = self.robot.data.default_root_state[env_ids].clone()
         joint_pos   = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel   = self.robot.data.default_joint_vel[env_ids].clone()
@@ -200,7 +200,7 @@ class ClawEnv(HOIEnv):
         goal_xy  = torch.zeros((N, 2), device=device)
         use_default_quat_toy = torch.zeros((N,), dtype=torch.bool, device=device)
 
-        # 简单矩形内均匀采样
+                   
         def _sample_xy_box(cx: float, cy: float, half_w: float, half_d: float):
             rx = torch.empty((), device=device).uniform_(cx - half_w, cx + half_w).item()
             ry = torch.empty((), device=device).uniform_(cy - half_d, cy + half_d).item()
@@ -209,7 +209,7 @@ class ClawEnv(HOIEnv):
         for i in range(N):
             cx, cy, cz = origins[i].tolist()
 
-            # --- robot 位置：避免离桌太近 ---
+                                     
             r_table = float(table_dims["keepout_radius_xy"][i].item())
             placed_robot = False
             for _ in range(max_trials):
@@ -229,12 +229,12 @@ class ClawEnv(HOIEnv):
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
 
-            # --- Table 固定在默认位姿（加上 env 原点平移）---
+                                               
             table_state[i, 0] = cx + float(table_state[i, 0].item())
             table_state[i, 1] = cy + float(table_state[i, 1].item())
             table_state[i, 2] = cz + float(table_state[i, 2].item())
 
-            # 桌面顶面 z、有效采样区域（≈ sqrt(0.9) ≈ 0.95 的长宽）
+                                                   
             a_min = table_dims["aabb_min"][i]
             a_max = table_dims["aabb_max"][i]
             width = float((a_max[0] - a_min[0]).item())
@@ -246,15 +246,15 @@ class ClawEnv(HOIEnv):
             table_center_y = table_state[i, 1].item()
             table_top_z = table_state[i, 2].item() + 0.5 * float(table_dims["size_aabb"][i, 2].item())
 
-            # 玩具半高 & 放置高度（贴合桌面）
+                               
             toy_half_h = 0.5 * float(toy_dims["size_aabb"][i, 2].item())
             toy_z = table_top_z + toy_half_h + 0.02
 
-            # --- 采样目标点（桌面 90% 区域）---
+                                     
             gx, gy = _sample_xy_box(table_center_x, table_center_y, half_w_eff, half_d_eff)
             goal_xy[i, 0], goal_xy[i, 1] = gx, gy
 
-            # --- 采样玩具点（与目标至少拉开 15cm）---
+                                        
             placed_toy = False
             for _ in range(max_trials):
                 tx_s, ty_s = _sample_xy_box(table_center_x, table_center_y, half_w_eff, half_d_eff)
@@ -269,19 +269,19 @@ class ClawEnv(HOIEnv):
                 toy_yaw[i] = 0.0
                 use_default_quat_toy[i] = True
 
-            # 写玩具的世界位置
+                      
             toy_state[i, 0] = toy_xy[i, 0]
             toy_state[i, 1] = toy_xy[i, 1]
             toy_state[i, 2] = toy_z
 
-        # --- 写回仿真 ---
+                      
         self.robot.write_root_link_pose_to_sim(root_state[:, :7], env_ids)
         self.robot.write_root_com_velocity_to_sim(root_state[:, 7:], env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
 
         self.table.write_root_pose_to_sim(table_state[:, :7], env_ids)
 
-        # 玩具 yaw-only 四元数（wxyz）
+                               
         cos, sin = torch.cos(0.5 * toy_yaw), torch.sin(0.5 * toy_yaw)
         toy_quat_rand = torch.stack([cos, torch.zeros_like(cos), torch.zeros_like(cos), sin], dim=-1)
         toy_quat_default = toy_state[:, 3:7]
@@ -289,7 +289,7 @@ class ClawEnv(HOIEnv):
         toy_root_pose = torch.cat([toy_state[:, :3], toy_quat], dim=-1)
         self.toy.write_root_pose_to_sim(toy_root_pose, env_ids)
 
-        # 目标小球：置于桌面上方 2cm（不参与碰撞）
+                                
         goal_pose = torch.zeros((len(env_ids), 7), device=self.device)
         goal_pose[:, 0] = goal_xy[:, 0]
         goal_pose[:, 1] = goal_xy[:, 1]
@@ -297,7 +297,7 @@ class ClawEnv(HOIEnv):
         goal_pose[:, 3] = 1.0  # identity quat
         self.goal.write_root_pose_to_sim(goal_pose, env_ids)
 
-        # 缓存/计数清理
+                 
         self._goal_xy_w[env_ids] = goal_xy
         if hasattr(self, "_counted_mask"):
             self._counted_mask[env_ids] = False
@@ -307,24 +307,24 @@ class ClawEnv(HOIEnv):
         if hasattr(self, "_prev_xy_dist"):
             self._prev_xy_dist[env_ids] = -1.0
 
-    # === 结束条件：仅玩具-目标的 XY 距离 ===
+                                
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         device = self.device
-        # 超时
+            
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
 
         toy_xy  = self.toy.data.root_pos_w[:, :2]
         goal_xy = self._goal_xy_w
         dist_xy = torch.linalg.norm(toy_xy - goal_xy, dim=-1)
 
-        thr = float(getattr(self.cfg, "goal_success_xy", 0.03))   # 默认 3cm
+        thr = float(getattr(self.cfg, "goal_success_xy", 0.03))           
         min_success_steps = int(getattr(self.cfg, "min_success_steps", 5))
         allow_success = (self.episode_length_buf >= min_success_steps)
 
         done_success = allow_success & (dist_xy < thr)
         time_out = time_out & (~done_success)
 
-        # 统计（只在“新完成”那一帧）
+                        
         completed_now = done_success | time_out
         if not hasattr(self, "_counted_mask"):
             self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
@@ -362,7 +362,7 @@ class ClawEnv(HOIEnv):
     #     time_out = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
     #     return done_success, time_out
 
-    # === 单步 ===
+                
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         action = action.to(self.device)
         if self.cfg.action_noise_model:
@@ -387,7 +387,7 @@ class ClawEnv(HOIEnv):
         self.reset_buf = self.reset_terminated | self.reset_time_outs
         self.reward_buf = self._get_rewards()
 
-        # 逐 env 重置
+                  
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) > 0:
             self._reset_idx(reset_env_ids)
@@ -396,30 +396,30 @@ class ClawEnv(HOIEnv):
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
 
-        # 事件
+            
         if self.cfg.events and "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
 
-        # 观测
+            
         self.obs_buf = self._get_observations()
         if self.cfg.observation_noise_model:
             self.obs_buf["policy"] = self._observation_noise_model(self.obs_buf["policy"])
 
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
 
-    # === 动作 ===
+                
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    # === 观测（保持形状不变；inter 使用 toy；goal 部分提供“相对目标向量 XY”）===
+                                                         
     def _get_observations(self) -> VecEnvObs:
         device = self.device
         ndof = self.robot.data.joint_pos.shape[1]
         q  = self.robot.data.joint_pos
         qd = self.robot.data.joint_vel
 
-        # 参考刚体：优先 cfg.reference_body
+                                    
         ref_name = getattr(self.cfg, "reference_body", None)
         names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
         if ref_name and (ref_name in names):
@@ -445,12 +445,12 @@ class ClawEnv(HOIEnv):
         toy_quat_w = self.toy.data.root_quat_w
         toy_center_rel = toy_pos_w - root_pos_w
 
-        # 惰性缓存 toy OBB 尺寸
+                         
         if not hasattr(self, "_cached_toy_size_obb") or self._cached_toy_size_obb.shape[0] != self.num_envs:
             self._cached_toy_size_obb = self._get_dims_for(self.toy, None)["size_obb"].to(device)
         toy_size_obb = self._cached_toy_size_obb
 
-        # goal 相对 toy 的 XY 向量（让策略直接朝目标推）
+                                        
         goal_vec_xy = self._goal_xy_w - toy_pos_w[:, :2]
 
         self_part  = torch.cat([q, qd, root_z, root_rot_6d, root_lin_w, root_ang_w], dim=-1)
@@ -460,35 +460,35 @@ class ClawEnv(HOIEnv):
         policy_obs = torch.cat([self_part, inter_part, goal_part], dim=-1)
 
         if isinstance(self.cfg.observation_space, int):
-            assert policy_obs.shape[1] == self.cfg.observation_space, \
+            assert policy_obs.shape[1] == self.cfg.observation_space,\
                 f"Obs length mismatch: got {policy_obs.shape[1]}, expect {self.cfg.observation_space}"
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
         self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
-    # === 预物理步 ===
+                  
     def _pre_physics_step(self, actions: torch.Tensor):
         self.actions = actions
         self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
-    # === 奖励：仅 goal 距离项（另保留轻量正则/步时惩罚）===
+                                        
     def _get_rewards(self) -> torch.Tensor:
         device = self.device
         eps = 1e-6
 
-        # goal 距离（XY）
+                     
         toy_xy  = self.toy.data.root_pos_w[:, :2]
         goal_xy = self._goal_xy_w
         dist_goal = torch.linalg.norm(toy_xy - goal_xy, dim=-1)
 
-        # 仅保留一个正向项：RBF 形式
+                         
         sigma_goal = float(getattr(self.cfg, "goal_reward_sigma", 0.30))
         w_goal     = float(getattr(self.cfg, "w_goal", 2.0))
         r_goal_xy  = w_goal * torch.exp(-dist_goal / (sigma_goal + eps))
 
-        # 轻量正则
+              
         w_action = float(getattr(self.cfg, "w_action", 2.5e-3))
         w_qd     = float(getattr(self.cfg, "w_qd", 1.0e-4))
         w_limits = float(getattr(self.cfg, "w_limits", 2.0e-2))
@@ -507,7 +507,7 @@ class ClawEnv(HOIEnv):
         reward = r_goal_xy - p_action - p_qd - p_limits - step_pen
         reward = torch.nan_to_num(reward, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # 记录
+            
         self.extras["r_terms"] = {
             "goal_xy":  r_goal_xy.mean().item(),
             "p_action": p_action.mean().item(),
