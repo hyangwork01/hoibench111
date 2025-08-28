@@ -31,7 +31,8 @@ class SitchairEnv(HOIEnv):
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3
         # 交互体态：中心点 + 长宽高 + 四元数
         inter_dim = 10
-        obs_dim = base_self_dim + inter_dim
+        goal_dim = 2
+        obs_dim = base_self_dim + inter_dim + goal_dim
 
         self.cfg.action_space = ndof
         self.cfg.observation_space = obs_dim
@@ -439,7 +440,8 @@ class SitchairEnv(HOIEnv):
 
         self_part   = torch.cat([q, qd, root_z, root_rot_6d, root_lin_w, root_ang_w], dim=-1)
         inter_part  = torch.cat([obj_center_rel, obj_size_obb, obj_quat_w], dim=-1)
-        policy_obs  = torch.cat([self_part, inter_part], dim=-1)
+        goal_part = obj_center_rel[:, :2]
+        policy_obs = torch.cat([self_part, inter_part, goal_part], dim=-1)
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
 

@@ -238,8 +238,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     print(f"Avg sim time / episode: {avg_time:.3f} s")
     print(f"Success rate: {success_rate * 100:.2f}% ({succ}/{total_episodes})")
     print("========================================\n")
+    simulation_app.close()
+
 
 
 if __name__ == "__main__":
     main()
-    simulation_app.close()
