@@ -14,7 +14,6 @@ from .touch_cfg import TouchEnvCfg
 
 
 class TouchEnv(HOIEnv):
-    """Eval 版 touch：与训练版保持同一观测与成功判据；仅在所有 env 完成时整体 reset。"""
     cfg: TouchEnvCfg
 
     def __init__(self, cfg: TouchEnvCfg, render_mode: str | None = None, **kwargs):

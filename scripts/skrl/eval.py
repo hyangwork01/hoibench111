@@ -103,7 +103,6 @@ elif args_cli.ml_framework.startswith("jax"):
 
 
 def _unwrap_env(env):
-    """取到底层 DirectRLEnv / 你的自定义 env 实例。"""
     base = getattr(env, "unwrapped", env)
                                           
     seen = set()

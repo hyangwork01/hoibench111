@@ -342,9 +342,7 @@ class PushboxEnv(HOIEnv):
         self.actions.clamp_(-1.0, 1.0)
 
     def _get_rewards(self) -> torch.Tensor:
-        """
-        Reward shaping focusing on pushing progress and stability near the box.
-        """
+
         device = self.device
         eps = 1e-6
 

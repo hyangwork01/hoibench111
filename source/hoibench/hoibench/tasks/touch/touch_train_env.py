@@ -349,15 +349,6 @@ class TouchEnv(HOIEnv):
 
                          
     def _get_rewards(self) -> torch.Tensor:
-        """
-        组合奖励（围绕“接触体→目标点”的 3D 距离）：
-          + 进度 r_progress = prev_dist - cur_dist
-          + 距离 r_dist = exp(-dist / sigma)
-          + 稳定 r_stable：接近目标时抑制参考刚体线/角速度
-          - 正则：动作 / 关节速度 / 接近软限位
-          + 事件：成功 +10，超时 -1
-          - step_pen：每步 -0.01
-        """
         device = self.device
         eps = 1e-6
 

@@ -274,12 +274,7 @@ class LiebedEnv(HOIEnv):
         return out
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Eval 成功判定（更严格）：
-        - z 方向接近床面（obj 顶面）: |pelvis_z - seat_z| < lie_thr_z
-        - XY 接近床中心: dist_xy < lie_thr_xy
-        - 速度足够小: ||pelvis_lin|| < lie_vel_thr
-        - 且需连续保持 eval_hold_success_steps 帧
-        """
+
         device = self.device
 
                         
@@ -354,7 +349,6 @@ class LiebedEnv(HOIEnv):
         return done_success, time_out
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
-        """单步：Eval 模式下不做逐 env 重置，只在全体完成后整体 reset。"""
         action = action.to(self.device)
         if self.cfg.action_noise_model:
             action = self._action_noise_model(action)

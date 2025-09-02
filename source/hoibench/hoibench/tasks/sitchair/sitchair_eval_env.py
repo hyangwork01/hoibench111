@@ -330,7 +330,6 @@ class SitchairEnv(HOIEnv):
         return done_success, time_out
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
-        """单步：Eval 模式下不做逐 env 重置，只在全体完成后整体 reset。"""
         action = action.to(self.device)
         if self.cfg.action_noise_model:
             action = self._action_noise_model(action)

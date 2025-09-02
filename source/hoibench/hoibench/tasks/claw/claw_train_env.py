@@ -17,10 +17,7 @@ from .claw_cfg import ClawEnvCfg
 
 
 class ClawEnv(HOIEnv):
-    """Claw 任务训练环境：
-    - 在固定桌面上随机初始化玩具与目标（目标用红色小球，仅可视化）；
-    - 结束条件：仅玩具到目标的 XY 距离；
-    - 奖励：仅保留“目标距离”项（另有轻量正则）。"""
+
     cfg: ClawEnvCfg
 
     def __init__(self, cfg: ClawEnvCfg, render_mode: str | None = None, **kwargs):
@@ -89,7 +86,6 @@ class ClawEnv(HOIEnv):
 
                                                                               
     def _get_dims_for(self, obj: RigidObject, env_ids: Sequence[int] | None = None):
-        """返回 obj 在各个 env 的 AABB/OBB 尺寸等信息。"""
         import numpy as np
         import isaacsim.core.utils.bounds as bounds_utils
         import isaacsim.core.utils.stage as stage_utils

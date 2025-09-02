@@ -170,10 +170,7 @@ class LiebedEnv(HOIEnv):
             self._prev_xy_dist[env_ids] = -1.0
 
     def _get_dims(self, env_ids: Sequence[int] | None = None):
-        """
-        计算交互物体的 AABB/OBB（逐 env）。
-        依赖 self.obj.cfg.prim_path 和已构建场景。
-        """
+
         import numpy as np
         import isaacsim.core.utils.bounds as bounds_utils
         import isaacsim.core.utils.stage as stage_utils
@@ -444,18 +441,7 @@ class LiebedEnv(HOIEnv):
 
                   
     def _get_rewards(self) -> torch.Tensor:
-        """
-        组合型奖励（默认权重可按需迁到 cfg）：
-          + 进度 r_progress（prev_dist - cur_dist）
-          + 水平对齐 r_align_xy（根与物体中心的 XY）
-          + 竖直对齐 r_height（骨盆与床面）
-          + 朝向 r_heading（根 x 轴朝向目标方向）
-          + 近床稳定 r_stable（竖直差小时时抑制根速度）
-          + 目标 r_goal_xy（goal 的 XY 距离）
-          - 正则 p_action / p_qd / p_limits
-          + 事件 bonus_success - penalty_timeout
-          - 每步小负激励 step_pen
-        """
+
         device = self.device
         eps = 1e-6
 

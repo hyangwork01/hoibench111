@@ -12,7 +12,6 @@ from isaaclab_assets import HUMANOID_28_CFG, G1_CFG, H1_CFG
 
 @configclass
 class ClawEnvCfg(HOIEnvCfg):
-    """Claw 任务环境配置：包含一张桌子（table）与一个可移动玩具（toy）。"""
 
                                           
     table: RigidObjectCfg = RigidObjectCfg(
@@ -99,7 +98,6 @@ class ClawEnvCfg(HOIEnvCfg):
 
 @configclass
 class ClawSmplEnvCfg(ClawEnvCfg):
-    """使用 SMPL 类人（示例占位），可按需替换为你的爪机/机械臂资产。"""
     reference_body: str = "torso"
     contact_body: str = "right_hand"
     key_body_names = ["right_hand", "left_hand", "right_foot", "left_foot"]
@@ -123,7 +121,6 @@ class ClawSmplEnvCfg(ClawEnvCfg):
 
 @configclass
 class ClawG1EnvCfg(ClawEnvCfg):
-    """使用 Unitree G1（示例占位）"""
     reference_body: str = "torso_link"
     contact_body: str = "right_palm_link"
     key_body_names = ["right_palm_link", "left_palm_link", "right_ankle_roll_link", "left_ankle_roll_link"]
@@ -132,7 +129,6 @@ class ClawG1EnvCfg(ClawEnvCfg):
 
 @configclass
 class ClawH1EnvCfg(ClawEnvCfg):
-    """使用 Unitree H1（示例占位）"""
     reference_body: str = "torso_link"
     contact_body: str = "right_elbow_link"
     key_body_names = ["right_elbow_link", "left_elbow_link", "right_ankle_link", "left_ankle_link"]
