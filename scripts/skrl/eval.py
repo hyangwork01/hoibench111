@@ -175,35 +175,36 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
            
     num_envs = getattr(base_env, "num_envs", getattr(getattr(base_env, "scene", None), "num_envs", 1))
-    rounds = max(1, int(getattr(args_cli, "rounds", 5)))                           
+    rounds = max(1, int(getattr(args_cli, "rounds", 5)))        
+    rounds = 2                   
     episodes_target = rounds * int(num_envs)
 
                             
-    for name in [
-        "stat_success_count",
-        "stat_timeout_count",
-        "stat_success_time_sum",
-        "stat_timeout_time_sum",
-        "stat_completed",
-        "stat_avg_time",
-    ]:
-        if hasattr(base_env, name):
-            setattr(base_env, name, 0 if "sum" not in name else 0.0)
-    if hasattr(base_env, "_counted_mask"):
-        try:
-            base_env._counted_mask.zero_()
-        except Exception:
-            pass
+    # for name in [
+    #     "stat_success_count",
+    #     "stat_timeout_count",
+    #     "stat_success_time_sum",
+    #     "stat_timeout_time_sum",
+    #     "stat_completed",
+    #     "stat_avg_time",
+    # ]:
+    #     if hasattr(base_env, name):
+    #         setattr(base_env, name, 0 if "sum" not in name else 0.0)
+    # if hasattr(base_env, "_counted_mask"):
+    #     try:
+    #         base_env._counted_mask.zero_()
+    #     except Exception:
+    #         pass
 
           
     obs, _ = env.reset()
 
                                          
     def _fetch_counts():
-        succ = getattr(base_env, "stat_success_count", 0)
-        comp = getattr(base_env, "stat_completed", 0)
-        t_succ = getattr(base_env, "stat_success_time_sum", 0.0)
-        t_to = getattr(base_env, "stat_timeout_time_sum", 0.0)
+        succ = base_env.stat_success_count
+        comp = base_env.stat_completed
+        t_succ = base_env.stat_success_time_sum
+        t_to = base_env.stat_timeout_time_sum
         return succ, comp, t_succ, t_to
 
     while simulation_app.is_running():
@@ -225,8 +226,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     succ, comp, t_succ, t_to = _fetch_counts()
     total_episodes = comp                   
     total_time = float(t_succ + t_to)            
-    avg_time = (total_time / total_episodes) if total_episodes > 0 else 0.0
-    success_rate = (succ / total_episodes) if total_episodes > 0 else 0.0
+    avg_time = (total_time / total_episodes)
+    success_rate = (succ / total_episodes)
 
                                                
     print("\n========== Evaluation Summary ==========")
@@ -237,8 +238,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     print(f"Avg sim time / episode: {avg_time:.3f} s")
     print(f"Success rate: {success_rate * 100:.2f}% ({succ}/{total_episodes})")
     print("========================================\n")
+    base_env.close()
     simulation_app.close()
-
+    return
 
 
 if __name__ == "__main__":

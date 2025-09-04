@@ -39,9 +39,6 @@ class TouchEnv(HOIEnv):
         self.action_offset = 0.5 * (dof_upper + dof_lower)
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
-        # stats
-        self.total_time = 0.0
-        self.total_completed = 0
 
                                     
         self._prev_xy_dist = torch.full((self.num_envs,), -1.0, device=self.device)
@@ -177,15 +174,7 @@ class TouchEnv(HOIEnv):
         self.goal.write_root_pose_to_sim(goal_pose, env_ids)
 
                                      
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
-
-                        
-        if hasattr(self, "_prev_xy_dist"):
-            self._prev_xy_dist[env_ids] = -1.0
+        self._prev_xy_dist[env_ids] = -1.0
 
                      
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -196,49 +185,18 @@ class TouchEnv(HOIEnv):
 
                                   
         thr = float(getattr(self.cfg, "touch_threshold", 0.03))           
-        min_success_steps = int(getattr(self.cfg, "min_success_steps", 5))
-        allow_success = (self.episode_length_buf >= min_success_steps)
 
         names = self.robot.data.body_names
         contact_idx = names.index(self.cfg.contact_body)
         contact_pos = self.robot.data.body_link_pos_w[:, contact_idx]  # (N,3)
 
         d = torch.linalg.norm(contact_pos - self.goal_pos_w, dim=-1)  # (N,)
-        done_success = (d < thr) & allow_success
+        done_success = (d < thr)
 
                         
         time_out = time_out & (~done_success)
 
                  
-        completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
-            self.stat_success_count = 0
-            self.stat_timeout_count = 0
-            self.stat_success_time_sum = 0.0
-            self.stat_timeout_time_sum = 0.0
-            self.stat_completed = 0
-            self.stat_avg_time = 0.0
-
-        new_mask = completed_now & (~self._counted_mask)
-        new_succ = done_success & new_mask
-        new_to = time_out & new_mask
-
-        dt = float(self.cfg.sim.dt) * int(self.cfg.decimation)
-        step_times = (self.episode_length_buf.to(torch.float32) + 1.0) * dt
-
-        self.stat_success_count += int(new_succ.sum().item())
-        self.stat_timeout_count += int(new_to.sum().item())
-        if new_succ.any():
-            self.stat_success_time_sum += float(step_times[new_succ].sum().item())
-        if new_to.any():
-            self.stat_timeout_time_sum += float(step_times[new_to].sum().item())
-        self.stat_completed = self.stat_success_count + self.stat_timeout_count
-        if self.stat_completed > 0:
-            total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
-            self.stat_avg_time = total_time / self.stat_completed
-
-        self._counted_mask |= completed_now
         return done_success, time_out
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
@@ -279,11 +237,6 @@ class TouchEnv(HOIEnv):
                 self.sim.render()
 
             
-        if self.cfg.events:
-            if "interval" in self.event_manager.available_modes:
-                self.event_manager.apply(mode="interval", dt=self.step_dt)
-
-            
         self.obs_buf = self._get_observations()
 
                                 
@@ -305,8 +258,8 @@ class TouchEnv(HOIEnv):
         qd = self.robot.data.joint_vel
 
                                                  
-        ref_name = getattr(self.cfg, "reference_body", None)
-        names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
+        ref_name = self.cfg.reference_body
+        names = self.robot.data.body_names
         if ref_name and (ref_name in names):
             rb = names.index(ref_name)
             root_pos_w = self.robot.data.body_link_pos_w[:, rb]
@@ -338,7 +291,6 @@ class TouchEnv(HOIEnv):
                 f"Obs length mismatch: got {policy_obs.shape[1]}, expect {self.cfg.observation_space}"
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
                       
@@ -367,7 +319,7 @@ class TouchEnv(HOIEnv):
 
                                     
                      
-        ref_name = getattr(self.cfg, "reference_body", None)
+        ref_name = self.cfg.reference_body
         names = self.robot.data.body_names
         if ref_name and (ref_name in names):
             rb = names.index(ref_name)

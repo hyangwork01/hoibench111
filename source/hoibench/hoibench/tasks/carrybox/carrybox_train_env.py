@@ -273,8 +273,6 @@ class CarryboxEnv(HOIEnv):
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
 
-        if self.cfg.events and "interval" in self.event_manager.available_modes:
-            self.event_manager.apply(mode="interval", dt=self.step_dt)
 
         self.obs_buf = self._get_observations()
         if self.cfg.observation_noise_model:

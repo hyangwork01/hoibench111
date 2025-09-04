@@ -13,6 +13,10 @@ from isaaclab_assets import HUMANOID_28_CFG, G1_CFG, H1_CFG
 @configclass
 class SitchairEnvCfg(HOIEnvCfg):
 
+    sit_success_z = 0.05
+    sit_success_xy = 0.1
+    sit_success_vel = 0.2
+
     obj: RigidObjectCfg = RigidObjectCfg(
         prim_path="/World/envs/env_.*/Object",
         spawn=sim_utils.UsdFileCfg(

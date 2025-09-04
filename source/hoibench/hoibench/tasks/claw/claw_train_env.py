@@ -44,14 +44,13 @@ class ClawEnv(HOIEnv):
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
             
-        self.total_time = 0.0
-        self.total_completed = 0
 
                            
         self._prev_xy_dist = torch.full((self.num_envs,), -1.0, device=self.device)
 
                      
         self._goal_xy_w = torch.zeros((self.num_envs, 2), device=self.device)
+        self.goal_success_xy = 0.03
 
                                               
     def _setup_scene(self):
@@ -295,13 +294,7 @@ class ClawEnv(HOIEnv):
 
                  
         self._goal_xy_w[env_ids] = goal_xy
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
-        if hasattr(self, "_prev_xy_dist"):
-            self._prev_xy_dist[env_ids] = -1.0
+        self._prev_xy_dist[env_ids] = -1.0
 
                                 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -313,50 +306,14 @@ class ClawEnv(HOIEnv):
         goal_xy = self._goal_xy_w
         dist_xy = torch.linalg.norm(toy_xy - goal_xy, dim=-1)
 
-        thr = float(getattr(self.cfg, "goal_success_xy", 0.03))           
-        min_success_steps = int(getattr(self.cfg, "min_success_steps", 5))
-        allow_success = (self.episode_length_buf >= min_success_steps)
+        thr = self.goal_success_xy         
 
-        done_success = allow_success & (dist_xy < thr)
+        done_success = (dist_xy < thr)
         time_out = time_out & (~done_success)
 
                         
-        completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
-            self.stat_success_count = 0
-            self.stat_timeout_count = 0
-            self.stat_success_time_sum = 0.0
-            self.stat_timeout_time_sum = 0.0
-            self.stat_completed = 0
-            self.stat_avg_time = 0.0
-
-        new_mask = completed_now & (~self._counted_mask)
-        new_succ = done_success & new_mask
-        new_to   = time_out     & new_mask
-
-        dt = float(self.cfg.sim.dt) * int(self.cfg.decimation)
-        step_times = (self.episode_length_buf.to(torch.float32) + 1.0) * dt
-        if new_succ.any():
-            self.stat_success_count += int(new_succ.sum().item())
-            self.stat_success_time_sum += float(step_times[new_succ].sum().item())
-        if new_to.any():
-            self.stat_timeout_count += int(new_to.sum().item())
-            self.stat_timeout_time_sum += float(step_times[new_to].sum().item())
-
-        self.stat_completed = self.stat_success_count + self.stat_timeout_count
-        if self.stat_completed > 0:
-            total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
-            self.stat_avg_time = total_time / self.stat_completed
-
-        self._counted_mask |= completed_now
         return done_success, time_out
 
-    # def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-    #     device = self.device
-    #     done_success = torch.ones(self.num_envs, dtype=torch.bool, device=device)
-    #     time_out = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
-    #     return done_success, time_out
 
                 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
@@ -391,10 +348,6 @@ class ClawEnv(HOIEnv):
             self.sim.forward()
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
-
-            
-        if self.cfg.events and "interval" in self.event_manager.available_modes:
-            self.event_manager.apply(mode="interval", dt=self.step_dt)
 
             
         self.obs_buf = self._get_observations()
@@ -460,7 +413,6 @@ class ClawEnv(HOIEnv):
                 f"Obs length mismatch: got {policy_obs.shape[1]}, expect {self.cfg.observation_space}"
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
                   

@@ -50,23 +50,30 @@ class LiebedEnv(HOIEnv):
         self.total_time = 0.0
         self.total_completed = 0
 
-        self.done_flag = False
 
                                         
                         
-        self._lie_thr_z  = float(getattr(self.cfg, "lie_z_threshold", 0.05))
+        self._lie_thr_z  = 0.05
                        
-        self._lie_thr_xy = float(getattr(self.cfg, "lie_xy_threshold", 0.35))
+        self._lie_thr_xy = 0.35
                                        
-        self._lie_vel_thr = float(getattr(self.cfg, "lie_vel_threshold", 0.2))
+        self._lie_vel_thr = 0.2
                           
-        self._eval_hold_steps = int(getattr(self.cfg, "eval_hold_success_steps", 5))
+        self._eval_hold_steps = 5
 
                          
         self._succ_streak = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
 
                                  
         self._obj_half_height_z = None
+
+        self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.stat_success_count = 0
+        self.stat_timeout_count = 0
+        self.stat_success_time_sum = 0.0
+        self.stat_timeout_time_sum = 0.0
+        self.stat_completed = 0
+        self.stat_avg_time = 0.0
 
                                               
     def _setup_scene(self):
@@ -183,15 +190,11 @@ class LiebedEnv(HOIEnv):
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
                             
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
-        self.done_flag = False             
+
 
                   
         self._succ_streak[env_ids] = 0
+        self._counted_mask[env_ids] = False
 
     def _get_dims(self, env_ids: Sequence[int] | None = None):
         import numpy as np
@@ -317,14 +320,7 @@ class LiebedEnv(HOIEnv):
 
                             
         completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
-            self.stat_success_count = 0
-            self.stat_timeout_count = 0
-            self.stat_success_time_sum = 0.0
-            self.stat_timeout_time_sum = 0.0
-            self.stat_completed = 0
-            self.stat_avg_time = 0.0
+
 
         new_mask = completed_now & (~self._counted_mask)
         new_succ = done_success & new_mask
@@ -381,7 +377,6 @@ class LiebedEnv(HOIEnv):
             self.sim.forward()
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
-            self.done_flag = True
 
         if self.cfg.events:
             if "interval" in self.event_manager.available_modes:
@@ -398,7 +393,7 @@ class LiebedEnv(HOIEnv):
     def _pre_physics_step(self, actions: torch.Tensor):
 
                   
-        self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
+        self.actions = torch.nan_to_num(actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
                                 
@@ -475,11 +470,7 @@ class LiebedEnv(HOIEnv):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    def get_done_flag(self):
-        return self.done_flag
 
-    def set_done_flag(self, new_flag):
-        self.done_flag = new_flag
 
     def _get_rewards(self) -> torch.Tensor:
                                             

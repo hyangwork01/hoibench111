@@ -18,7 +18,7 @@ class PushboxEnvCfg(HOIEnvCfg):
         prim_path="/World/envs/env_.*/Object",
         spawn=sim_utils.UsdFileCfg(
             # NOTE: replace usd_path with a valid box asset path in your system
-            usd_path="/World/Props/Box/box_instance.usda",  # TODO: set to a valid USD box asset path
+            usd_path="/home/luohy/MyRepository/MyDataSets/Data/Object/box/3FO3RM3IN0CI/Instance.usda",  # TODO: set to a valid USD box asset path
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True,
                 kinematic_enabled=False,

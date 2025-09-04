@@ -61,7 +61,6 @@ class ClawEnv(HOIEnv):
         self.stat_completed = 0
         self.stat_avg_time = 0.0
         self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.done_flag = False                                 
 
                                               
     def _setup_scene(self):
@@ -303,14 +302,9 @@ class ClawEnv(HOIEnv):
                  
         self._goal_xy_w[env_ids] = goal_xy
         self._succ_streak[env_ids] = 0
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
+        self._counted_mask[env_ids] = False
 
                     
-        self.done_flag = False
 
                                                          
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -334,8 +328,6 @@ class ClawEnv(HOIEnv):
 
                               
         completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
 
         new_mask = completed_now & (~self._counted_mask)
         new_succ = done_success & new_mask
@@ -391,7 +383,6 @@ class ClawEnv(HOIEnv):
             self.sim.forward()
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
-            self.done_flag = True
 
             
         if self.cfg.events and "interval" in self.event_manager.available_modes:
@@ -479,11 +470,7 @@ class ClawEnv(HOIEnv):
         return obs
 
                                                      
-    def get_done_flag(self):
-        return self.done_flag
 
-    def set_done_flag(self, new_flag: bool):
-        self.done_flag = bool(new_flag)
 
                                                    
     def _get_rewards(self) -> torch.Tensor:

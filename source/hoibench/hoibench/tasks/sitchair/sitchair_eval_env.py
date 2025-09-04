@@ -44,20 +44,23 @@ class SitchairEnv(HOIEnv):
         self.action_offset = 0.5 * (dof_upper + dof_lower)
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
-        self.test_count = 10000
-        self.test_scores = []
 
-        self.total_time = 0.0
-        self.total_completed = 0
 
-        self.done_flag = False
 
                                            
-        self._sit_thr_z = float(getattr(self.cfg, "sit_distance_threshold", 0.05))             
-        self._sit_thr_xy = float(getattr(self.cfg, "sit_xy_threshold", 0.35))              
-        self._sit_vel_thr = float(getattr(self.cfg, "sit_vel_threshold", 0.2))              
-        self._seat_offset_z = float(getattr(self.cfg, "seat_offset_z", 0.45))                    
+        self._sit_thr_z = 0.05         
+        self._sit_thr_xy = 0.35              
+        self._sit_vel_thr = 0.2              
+        self._seat_offset_z = 0.45                   
 
+
+        self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.stat_success_count = 0
+        self.stat_timeout_count = 0
+        self.stat_success_time_sum = 0.0
+        self.stat_timeout_time_sum = 0.0
+        self.stat_completed = 0
+        self.stat_avg_time = 0.0
                                               
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
@@ -170,12 +173,8 @@ class SitchairEnv(HOIEnv):
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
                             
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
-        self.done_flag = False             
+        self._counted_mask[env_ids] = False
+
 
                                                              
         dims_all = self._get_dims(env_ids)
@@ -280,7 +279,6 @@ class SitchairEnv(HOIEnv):
         if getattr(self.cfg, "seat_height", None) is not None:
             seat_z = torch.as_tensor(self.cfg.seat_height, device=device).expand_as(contact_pos[:, 2])
         else:
-                                                       
                                             
             if not hasattr(self, "_aabb_min_z_local") or self._aabb_min_z_local.shape[0] != self.num_envs:
                 dims = self._get_dims(None)
@@ -299,14 +297,6 @@ class SitchairEnv(HOIEnv):
 
                        
         completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
-            self.stat_success_count = 0
-            self.stat_timeout_count = 0
-            self.stat_success_time_sum = 0.0
-            self.stat_timeout_time_sum = 0.0
-            self.stat_completed = 0
-            self.stat_avg_time = 0.0
 
         new_mask = completed_now & (~self._counted_mask)
         new_succ = done_success & new_mask
@@ -363,7 +353,6 @@ class SitchairEnv(HOIEnv):
             self.sim.forward()
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
-            self.done_flag = True
 
         if self.cfg.events:
             if "interval" in self.event_manager.available_modes:
@@ -381,11 +370,11 @@ class SitchairEnv(HOIEnv):
                                                    
 
                   
-        self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
+        self.actions = torch.nan_to_num(actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
                                 
-        completed = getattr(self, "_counted_mask", None)
+        completed = self._counted_mask
         if completed is not None and completed.any():
             q_current = self.robot.data.joint_pos
             a_freeze = (q_current - self.action_offset) / (self.action_scale + 1e-8)
@@ -458,11 +447,7 @@ class SitchairEnv(HOIEnv):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    def get_done_flag(self):
-        return self.done_flag
 
-    def set_done_flag(self, new_flag):
-        self.done_flag = new_flag
 
     def _get_rewards(self) -> torch.Tensor:
                                             

@@ -25,7 +25,7 @@ class PushboxEnv(HOIEnv):
         ndof = self.robot.data.joint_pos.shape[1]
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3   # q, qd, root_z, root_rot6d, root_lin, root_ang
         inter_dim = 10                              # obj_center_rel(3)+size_obb(3)+obj_quat(4)
-        obs_dim = base_self_dim + inter_dim
+        obs_dim = base_self_dim + inter_dim + 2
 
         self.cfg.action_space = ndof
         self.cfg.observation_space = obs_dim
@@ -39,8 +39,15 @@ class PushboxEnv(HOIEnv):
 
         # bookkeeping
         self._obj_init_pos = torch.zeros((self.num_envs, 3), device=self.device)
+        self._target_xy = torch.zeros((self.num_envs, 2), device=self.device)
+
         self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self.done_flag = False
+        self.stat_success_count = 0
+        self.stat_timeout_count = 0
+        self.stat_success_time_sum = 0.0
+        self.stat_timeout_time_sum = 0.0
+        self.stat_completed = 0
+        self.stat_avg_time = 0.0
 
     # ----------------- scene -----------------
     def _setup_scene(self):
@@ -86,6 +93,10 @@ class PushboxEnv(HOIEnv):
         joint_vel = self.robot.data.default_joint_vel[env_ids].clone()
         obj_state = self.obj.data.default_root_state[env_ids].clone()
 
+        ground_clearance = 0.05
+        obj_state[:, 2] =obj_state[:, 2] - obj_info["aabb_min"][:, 2] + ground_clearance
+
+
         origins = self.scene.env_origins[env_ids]
 
         N = len(env_ids)
@@ -126,12 +137,12 @@ class PushboxEnv(HOIEnv):
                 obj_yaw[i] = 0.0
                 use_default_quat[i] = True
 
-            world_z = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
+            world_z = cz + root_state[i, 2].item()
             root_state[i, 0] = robot_xy[i, 0]
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = world_z
 
-            obj_world_z = cz + (obj_state[i, 2].item() if obj_state.ndim == 2 else 0.0)
+            obj_world_z = cz + obj_state[i, 2].item()
             obj_state[i, 0] = obj_xy[i, 0]
             obj_state[i, 1] = obj_xy[i, 1]
             obj_state[i, 2] = obj_world_z
@@ -149,16 +160,16 @@ class PushboxEnv(HOIEnv):
         obj_root_pose = torch.cat([obj_state[:, :3], obj_quat], dim=-1)
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
+        push_off = self.cfg.push_target_offset
+        fwd_xy = torch.stack([torch.cos(obj_yaw), torch.sin(obj_yaw)], dim=-1)
+        self._target_xy[env_ids] = obj_state[:, :2] + push_off * fwd_xy
+
         # cache initial box position for success check
         self._obj_init_pos[env_ids] = obj_state[:, :3]
 
         # clear masks and caches
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        self.done_flag = False
+
+        self._counted_mask[env_ids] = False
 
     # helper for box dims/keepout
     def _get_dims(self, env_ids: Sequence[int] | None = None):
@@ -251,9 +262,24 @@ class PushboxEnv(HOIEnv):
         time_out = time_out & (~done_success)
 
         completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
+        new_mask = completed_now & (~self._counted_mask)
+        new_succ = done_success & new_mask
+        new_to   = time_out     & new_mask
 
+        dt = float(self.cfg.sim.dt) * int(self.cfg.decimation)
+        step_times = (self.episode_length_buf.to(torch.float32) + 1.0) * dt
+
+        self.stat_success_count += int(new_succ.sum().item())
+        self.stat_timeout_count += int(new_to.sum().item())
+        if new_succ.any():
+            self.stat_success_time_sum += float(step_times[new_succ].sum().item())
+        if new_to.any():
+            self.stat_timeout_time_sum += float(step_times[new_to].sum().item())
+        self.stat_completed = self.stat_success_count + self.stat_timeout_count
+        if self.stat_completed > 0:
+            total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
+            self.stat_avg_time = total_time / self.stat_completed
+            
         self._counted_mask |= completed_now
         return done_success, time_out
 
@@ -291,7 +317,6 @@ class PushboxEnv(HOIEnv):
             self.sim.forward()
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
-            self.done_flag = True
 
         if self.cfg.events and "interval" in self.event_manager.available_modes:
             self.event_manager.apply(mode="interval", dt=self.step_dt)
@@ -352,7 +377,8 @@ class PushboxEnv(HOIEnv):
 
         self_part = torch.cat([q, qd, root_z, root_rot_6d, root_lin_w, root_ang_w], dim=-1)
         inter_part = torch.cat([obj_center_rel, obj_size_obb, obj_quat_w], dim=-1)
-        policy_obs = torch.cat([self_part, inter_part], dim=-1)
+        goal_xy = (self._target_xy - obj_pos_w[:, :2])
+        policy_obs = torch.cat([self_part, inter_part, goal_xy], dim=-1)
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
         if not hasattr(self, "_last_obs"):
@@ -360,18 +386,13 @@ class PushboxEnv(HOIEnv):
         completed = getattr(self, "_counted_mask", None)
         if completed is not None and completed.any():
             obs["policy"][completed] = self._last_obs["policy"][completed]
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    def get_done_flag(self):
-        return self.done_flag
 
-    def set_done_flag(self, new_flag):
-        self.done_flag = new_flag
 
     def _get_rewards(self) -> torch.Tensor:
         # eval: zero rewards

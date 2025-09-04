@@ -24,7 +24,7 @@ class CarryboxEnv(HOIEnv):
         ndof = self.robot.data.joint_pos.shape[1]
         base_self_dim = 2 * ndof + 1 + 6 + 3 + 3
         inter_dim = 10
-        obs_dim = base_self_dim + inter_dim
+        obs_dim = base_self_dim + inter_dim + 2
 
         self.cfg.action_space = ndof
         self.cfg.observation_space = obs_dim
@@ -41,6 +41,17 @@ class CarryboxEnv(HOIEnv):
         self._target_xy = torch.zeros((self.num_envs, 2), device=self.device)
         self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.done_flag = False
+
+        self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.stat_success_count = 0
+        self.stat_timeout_count = 0
+        self.stat_success_time_sum = 0.0
+        self.stat_timeout_time_sum = 0.0
+        self.stat_completed = 0
+        self.stat_avg_time = 0.0
+
+        self.success_xy_threshold = 0.025
+
 
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
@@ -250,11 +261,32 @@ class CarryboxEnv(HOIEnv):
 
         # target proximity
         dist_xy = torch.linalg.norm(pos[:, :2] - target_xy, dim=-1)
-        xy_ok = dist_xy <= float(getattr(self.cfg, "success_xy_threshold", 0.25))
+        xy_ok = dist_xy <= self.success_xy_threshold
 
         done_success = lift_ok & xy_ok
         time_out = time_out & (~done_success)
-        self._counted_mask |= (done_success | time_out)
+        completed_now = done_success | time_out
+
+        new_mask = completed_now & (~self._counted_mask)
+        new_succ = done_success & new_mask
+        new_to   = time_out     & new_mask
+
+        dt = float(self.cfg.sim.dt) * int(self.cfg.decimation)
+        step_times = (self.episode_length_buf.to(torch.float32) + 1.0) * dt
+
+        self.stat_success_count += int(new_succ.sum().item())
+        self.stat_timeout_count += int(new_to.sum().item())
+        if new_succ.any():
+            self.stat_success_time_sum += float(step_times[new_succ].sum().item())
+        if new_to.any():
+            self.stat_timeout_time_sum += float(step_times[new_to].sum().item())
+        self.stat_completed = self.stat_success_count + self.stat_timeout_count
+        if self.stat_completed > 0:
+            total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
+            self.stat_avg_time = total_time / self.stat_completed
+
+        self._counted_mask |= completed_now
+
         return done_success, time_out
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
@@ -345,26 +377,19 @@ class CarryboxEnv(HOIEnv):
 
         self_part = torch.cat([q, qd, root_z, root_rot_6d, root_lin_w, root_ang_w], dim=-1)
         inter_part = torch.cat([obj_center_rel, obj_size_obb, obj_quat_w], dim=-1)
-        policy_obs = torch.cat([self_part, inter_part], dim=-1)
+        goal_xy = (self._target_xy - obj_pos_w[:, :2])
+        policy_obs = torch.cat([self_part, inter_part, goal_xy], dim=-1)
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
-        if not hasattr(self, "_last_obs"):
-            self._last_obs = {k: v.clone() for k, v in obs.items()}
-        completed = getattr(self, "_counted_mask", None)
-        if completed is not None and completed.any():
-            obs["policy"][completed] = self._last_obs["policy"][completed]
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
+
+
         return obs
 
     def _apply_action(self):
         target = self.action_offset + self.action_scale * self.actions
         self.robot.set_joint_position_target(target)
 
-    def get_done_flag(self):
-        return self.done_flag
 
-    def set_done_flag(self, new_flag):
-        self.done_flag = new_flag
 
     def _get_rewards(self) -> torch.Tensor:
         return torch.zeros(self.num_envs, device=self.device)

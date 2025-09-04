@@ -38,10 +38,13 @@ class TouchEnv(HOIEnv):
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
                
-        self.done_flag = False
         self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self._last_obs = None
-
+        self.stat_success_count = 0
+        self.stat_timeout_count = 0
+        self.stat_success_time_sum = 0.0
+        self.stat_timeout_time_sum = 0.0
+        self.stat_completed = 0
+        self.stat_avg_time = 0.0
                
         self.goal_pos_w = torch.zeros((self.num_envs, 3), device=self.device)
 
@@ -159,7 +162,6 @@ class TouchEnv(HOIEnv):
 
               
         self._counted_mask[env_ids] = False
-        self.done_flag = False
 
                                                               
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -179,15 +181,32 @@ class TouchEnv(HOIEnv):
 
         dist = torch.linalg.norm(contact_pos - self.goal_pos_w, dim=-1)  # (N,)
         done_success = (dist < thr) & allow_success
-
-            
         time_out = time_out & (~done_success)
 
                         
         completed_now = done_success | time_out
-        new_mask = completed_now & (~self._counted_mask)
-        self._counted_mask |= completed_now            
 
+        new_mask = completed_now & (~self._counted_mask)
+        new_succ = done_success & new_mask
+        new_to   = time_out     & new_mask
+
+        dt = float(self.cfg.sim.dt) * int(self.cfg.decimation)
+        step_times = (self.episode_length_buf.to(torch.float32) + 1.0) * dt
+
+        self.stat_success_count += int(new_succ.sum().item())
+        self.stat_timeout_count += int(new_to.sum().item())
+        if new_succ.any():
+            self.stat_success_time_sum += float(step_times[new_succ].sum().item())
+        if new_to.any():
+            self.stat_timeout_time_sum += float(step_times[new_to].sum().item())
+        self.stat_completed = self.stat_success_count + self.stat_timeout_count
+        if self.stat_completed > 0:
+            total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
+            self.stat_avg_time = total_time / self.stat_completed
+
+        self._counted_mask |= completed_now
+
+        
         return done_success, time_out
 
                                                                      
@@ -223,7 +242,6 @@ class TouchEnv(HOIEnv):
             self.sim.forward()
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
-            self.done_flag = True
 
                   
         if self.cfg.events:
@@ -260,8 +278,8 @@ class TouchEnv(HOIEnv):
         qd = self.robot.data.joint_vel
 
                                                  
-        ref_name = getattr(self.cfg, "reference_body", None)
-        names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
+        ref_name = self.cfg.reference_body
+        names = self.robot.data.body_names
         if ref_name and (ref_name in names):
             rb = names.index(ref_name)
             root_pos_w  = self.robot.data.body_link_pos_w[:, rb]
@@ -290,12 +308,6 @@ class TouchEnv(HOIEnv):
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
 
-                              
-        if self._last_obs is not None:
-            completed = getattr(self, "_counted_mask", None)
-            if completed is not None and completed.any():
-                obs["policy"][completed] = self._last_obs["policy"][completed]
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
     def _apply_action(self):
@@ -303,11 +315,7 @@ class TouchEnv(HOIEnv):
         self.robot.set_joint_position_target(target)
 
                
-    def get_done_flag(self):
-        return self.done_flag
 
-    def set_done_flag(self, new_flag):
-        self.done_flag = new_flag
 
                   
     def _get_rewards(self) -> torch.Tensor:

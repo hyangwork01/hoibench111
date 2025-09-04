@@ -89,6 +89,10 @@ class PushboxEnv(HOIEnv):
         joint_vel = self.robot.data.default_joint_vel[env_ids].clone()
         obj_state = self.obj.data.default_root_state[env_ids].clone()
 
+
+        ground_clearance = 0.05
+        obj_state[:, 2] =obj_state[:, 2] - obj_info["aabb_min"][:, 2] + ground_clearance
+
         origins = self.scene.env_origins[env_ids]
 
         N = len(env_ids)
@@ -129,12 +133,12 @@ class PushboxEnv(HOIEnv):
                 obj_yaw[i] = 0.0
                 use_default_quat[i] = True
 
-            world_z = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
+            world_z = cz + root_state[i, 2].item()
             root_state[i, 0] = robot_xy[i, 0]
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = world_z
 
-            obj_world_z = cz + (obj_state[i, 2].item() if obj_state.ndim == 2 else 0.0)
+            obj_world_z = cz + obj_state[i, 2].item()
             obj_state[i, 0] = obj_xy[i, 0]
             obj_state[i, 1] = obj_xy[i, 1]
             obj_state[i, 2] = obj_world_z
@@ -155,7 +159,7 @@ class PushboxEnv(HOIEnv):
         self._prev_box_disp[env_ids] = -1.0
 
         # define per-env push target in XY along object's yaw-forward
-        push_off = float(getattr(self.cfg, "push_target_offset", 0.5))
+        push_off = self.cfg.push_target_offset
         fwd_xy = torch.stack([torch.cos(obj_yaw), torch.sin(obj_yaw)], dim=-1)
         self._target_xy[env_ids] = obj_state[:, :2] + push_off * fwd_xy
         self._prev_target_dist[env_ids] = -1.0
@@ -241,10 +245,9 @@ class PushboxEnv(HOIEnv):
 
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
         disp = torch.linalg.norm(self.obj.data.root_pos_w - self._obj_init_pos, dim=-1)
-        thr = float(getattr(self.cfg, "push_target_offset", 0.5))
-        min_steps = int(getattr(self.cfg, "min_success_steps", 10))
-        allow_success = (self.episode_length_buf >= min_steps)
-        done_success = (disp >= thr) & allow_success
+        thr = self.cfg.push_target_offset
+
+        done_success = (disp >= thr) 
         time_out = time_out & (~done_success)
         return done_success, time_out
 
@@ -279,8 +282,7 @@ class PushboxEnv(HOIEnv):
             if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
                 self.sim.render()
 
-        if self.cfg.events and "interval" in self.event_manager.available_modes:
-            self.event_manager.apply(mode="interval", dt=self.step_dt)
+
 
         self.obs_buf = self._get_observations()
         if self.cfg.observation_noise_model:
@@ -298,8 +300,8 @@ class PushboxEnv(HOIEnv):
         q = self.robot.data.joint_pos
         qd = self.robot.data.joint_vel
 
-        ref_name = getattr(self.cfg, "reference_body", None)
-        names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
+        ref_name = self.cfg.reference_body
+        names = self.robot.data.body_names
         if ref_name and (ref_name in names):
             rb = names.index(ref_name)
             root_pos_w = self.robot.data.body_link_pos_w[:, rb]
@@ -334,11 +336,11 @@ class PushboxEnv(HOIEnv):
         policy_obs = torch.cat([self_part, inter_part, goal_xy], dim=-1)
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        self.actions = torch.nan_to_num(actions, nan=0.0, posinf=0.0, neginf=0.0)
+        self.actions = actions
+        self.actions = torch.nan_to_num(self.actions, nan=0.0, posinf=0.0, neginf=0.0)
         self.actions.clamp_(-1.0, 1.0)
 
     def _get_rewards(self) -> torch.Tensor:
@@ -364,7 +366,7 @@ class PushboxEnv(HOIEnv):
         pelvis_pos = self.robot.data.body_link_pos_w[:, pelvis_idx]
 
         # reference body orientation
-        ref_name = getattr(self.cfg, "reference_body", None)
+        ref_name = self.cfg.reference_body
         if ref_name in names:
             rb = names.index(ref_name)
             root_quat_w = self.robot.data.body_link_quat_w[:, rb]

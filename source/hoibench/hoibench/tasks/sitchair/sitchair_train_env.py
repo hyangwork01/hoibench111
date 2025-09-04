@@ -41,13 +41,14 @@ class SitchairEnv(HOIEnv):
         self.action_offset = 0.5 * (dof_upper + dof_lower)
         self.action_scale = (dof_upper - dof_lower).clamp_min(1e-6)
 
-        # stats
-        self.total_time = 0.0
-        self.total_completed = 0
+
 
                                                     
         self._prev_xy_dist = torch.full((self.num_envs,), -1.0, device=self.device)
 
+        self._sit_thr_z = self.cfg.sit_success_z
+        self._sit_thr_xy = self.cfg.sit_success_xy
+        self._sit_vel_thr = self.cfg.sit_success_vel
                                               
     def _setup_scene(self):
         self.robot = Articulation(self.cfg.robot)
@@ -95,6 +96,8 @@ class SitchairEnv(HOIEnv):
         joint_pos = self.robot.data.default_joint_pos[env_ids].clone()
         joint_vel = self.robot.data.default_joint_vel[env_ids].clone()
         obj_state = self.obj.data.default_root_state[env_ids].clone()     # (N,13)
+        ground_clearance = 1e-3
+        obj_state[:, 2] =obj_state[:, 2] - obj_info["aabb_min"][:, 2] + ground_clearance
 
         origins = self.scene.env_origins[env_ids]  # (N,3)
 
@@ -136,12 +139,12 @@ class SitchairEnv(HOIEnv):
                 obj_yaw[i] = 0.0
                 use_default_quat[i] = True
 
-            world_z = cz + (root_state[i, 2].item() if root_state.ndim == 2 else 0.0)
+            world_z = cz + root_state[i, 2].item()
             root_state[i, 0] = robot_xy[i, 0]
             root_state[i, 1] = robot_xy[i, 1]
             root_state[i, 2] = world_z
 
-            obj_world_z = cz + (obj_state[i, 2].item() if obj_state.ndim == 2 else 0.0)
+            obj_world_z = cz + obj_state[i, 2].item()
             obj_state[i, 0] = obj_xy[i, 0]
             obj_state[i, 1] = obj_xy[i, 1]
             obj_state[i, 2] = obj_world_z
@@ -160,15 +163,8 @@ class SitchairEnv(HOIEnv):
         self.obj.write_root_pose_to_sim(obj_root_pose, env_ids)
 
                                      
-        if hasattr(self, "_counted_mask"):
-            self._counted_mask[env_ids] = False
-        if hasattr(self, "_last_obs"):
-            for k in self._last_obs:
-                self._last_obs[k][env_ids] = 0.0
-
-                                     
-        if hasattr(self, "_prev_xy_dist"):
-            self._prev_xy_dist[env_ids] = -1.0                  
+         
+        self._prev_xy_dist[env_ids] = -1.0                  
 
     def _get_dims(self, env_ids: Sequence[int] | None = None):
 
@@ -252,66 +248,36 @@ class SitchairEnv(HOIEnv):
                         
         time_out = (self.episode_length_buf >= self.max_episode_length - 1).to(device)
 
-                     
                                        
-        thr = float(getattr(self.cfg, "sit_distance_threshold", 0.004))
-                                               
-        min_success_steps = int(getattr(self.cfg, "min_success_steps", 10))
-        allow_success = (self.episode_length_buf >= min_success_steps)
+        thr_z = float(self._sit_thr_z)                   
+
+
 
                       
         names = self.robot.data.body_names
         cand = self.cfg.contact_body
         self._contact_index = names.index(cand)
-        contact_pos = self.robot.data.body_link_pos_w[:, self._contact_index]  # (N, 3)
+        contact_pos = self.robot.data.body_link_pos_w[:, self._contact_index]      # (N, 3)
+        contact_lin = self.robot.data.body_link_lin_vel_w[:, self._contact_index]  # (N, 3)
 
-              
+
         if hasattr(self.cfg, "seat_height"):
             seat_z = torch.as_tensor(self.cfg.seat_height, device=device).expand_as(contact_pos[:, 2])
         else:
-            if not hasattr(self, "_obj_half_height_z"):
-                dims = self._get_dims(None)["size_aabb"][:, 2].to(device)
-                self._obj_half_height_z = 0.5 * dims
+            dims = self._get_dims()["size_aabb"][:, 2].to(device)
+            self._obj_half_height_z = 0.5 * dims
             seat_z = self.obj.data.root_pos_w[:, 2] + self._obj_half_height_z
 
-        vertical_gap = (contact_pos[:, 2] - seat_z).abs()
+        vertical_gap = (contact_pos[:, 2] - seat_z).abs()                         
 
-                         
-        done_success = (vertical_gap < thr) & allow_success
+        obj_pos_w = self.obj.data.root_pos_w
+        dist_xy = torch.linalg.norm((obj_pos_w - contact_pos)[:, :2], dim=-1)
+        slow_enough = contact_lin.norm(dim=-1) < self._sit_vel_thr
+        done_success = (vertical_gap < thr_z) & (dist_xy < self._sit_thr_xy) & slow_enough
 
-                        
         time_out = time_out & (~done_success)
 
                                
-        completed_now = done_success | time_out
-        if not hasattr(self, "_counted_mask"):
-            self._counted_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=device)
-            self.stat_success_count = 0
-            self.stat_timeout_count = 0
-            self.stat_success_time_sum = 0.0
-            self.stat_timeout_time_sum = 0.0
-            self.stat_completed = 0
-            self.stat_avg_time = 0.0
-
-        new_mask = completed_now & (~self._counted_mask)
-        new_succ = done_success & new_mask
-        new_to = time_out & new_mask
-
-        dt = float(self.cfg.sim.dt) * int(self.cfg.decimation)
-        step_times = (self.episode_length_buf.to(torch.float32) + 1.0) * dt
-
-        self.stat_success_count += int(new_succ.sum().item())
-        self.stat_timeout_count += int(new_to.sum().item())
-        if new_succ.any():
-            self.stat_success_time_sum += float(step_times[new_succ].sum().item())
-        if new_to.any():
-            self.stat_timeout_time_sum += float(step_times[new_to].sum().item())
-        self.stat_completed = self.stat_success_count + self.stat_timeout_count
-        if self.stat_completed > 0:
-            total_time = self.stat_success_time_sum + self.stat_timeout_time_sum
-            self.stat_avg_time = total_time / self.stat_completed
-
-        self._counted_mask |= completed_now
         return done_success, time_out
 
 
@@ -353,11 +319,6 @@ class SitchairEnv(HOIEnv):
                 self.sim.render()
 
             
-        if self.cfg.events:
-            if "interval" in self.event_manager.available_modes:
-                self.event_manager.apply(mode="interval", dt=self.step_dt)
-
-            
         self.obs_buf = self._get_observations()
 
                                 
@@ -380,8 +341,8 @@ class SitchairEnv(HOIEnv):
 
                                                                    
 
-        ref_name = getattr(self.cfg, "reference_body", None)
-        names = getattr(self.robot.data, "body_names", self.robot.data.body_names)
+        ref_name = self.cfg.reference_body
+        names = self.robot.data.body_names
         if ref_name and (ref_name in names):
             rb = names.index(ref_name)
             root_pos_w = self.robot.data.body_link_pos_w[:, rb]
@@ -416,7 +377,7 @@ class SitchairEnv(HOIEnv):
 
         obs = {"policy": torch.nan_to_num(policy_obs)}
                              
-        self._last_obs = {k: v.clone() for k, v in obs.items()}
+        # self._last_obs = {k: v.clone() for k, v in obs.items()}
         return obs
 
                                    
@@ -453,26 +414,20 @@ class SitchairEnv(HOIEnv):
 
                                     
                        
-        if hasattr(self, "ref_body_index"):
-            rb = int(self.ref_body_index)
+
+        ref_name = self.cfg.reference_body
+        names = self.robot.data.body_names
+        if ref_name and (ref_name in names):
+            rb = names.index(ref_name)
             root_pos_w  = self.robot.data.body_link_pos_w[:, rb]
             root_quat_w = self.robot.data.body_link_quat_w[:, rb]
             root_lin_w  = self.robot.data.body_link_lin_vel_w[:, rb]
             root_ang_w  = self.robot.data.body_link_ang_vel_w[:, rb]
         else:
-            ref_name = getattr(self.cfg, "reference_body", None)
-            names = self.robot.data.body_names
-            if ref_name and (ref_name in names):
-                rb = names.index(ref_name)
-                root_pos_w  = self.robot.data.body_link_pos_w[:, rb]
-                root_quat_w = self.robot.data.body_link_quat_w[:, rb]
-                root_lin_w  = self.robot.data.body_link_lin_vel_w[:, rb]
-                root_ang_w  = self.robot.data.body_link_ang_vel_w[:, rb]
-            else:
-                root_pos_w  = self.robot.data.root_link_pos_w
-                root_quat_w = self.robot.data.root_link_quat_w
-                root_lin_w  = self.robot.data.root_link_lin_vel_w
-                root_ang_w  = self.robot.data.root_link_ang_vel_w
+            root_pos_w  = self.robot.data.root_link_pos_w
+            root_quat_w = self.robot.data.root_link_quat_w
+            root_lin_w  = self.robot.data.root_link_lin_vel_w
+            root_ang_w  = self.robot.data.root_link_ang_vel_w
 
         obj_pos_w  = self.obj.data.root_pos_w
 

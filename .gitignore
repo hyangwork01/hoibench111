@@ -71,4 +71,4 @@ tests/
 .isaac-lab-docker-history
 
 
-scripts/skrl/strip_cn_comments.py
+scripts/strip_cn_comments.py
