@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>文件上传</title>
+</head>
+<body>
+    <h2>Welcome! Please upload your file.</h2>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <p style="color:red;">{{ messages[0] }}</p>
+      {% endif %}
+    {% endwith %}
+    <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+        <label>access token:
+          <input type="text" name="token" placeholder="please input right token" required>
+        </label><br><br>
+        <label>Choose your ckpt file:
+            <input type="file" name="ckpt" accept=".pt" required>
+        </label><br><br>
+        <label>Choose your agent yaml file:
+            <input type="file" name="yaml" accept=".yaml" required>
+        </label><br><br>
+         <label>Choose robot type:
+            <select name="robot_type" required>
+                <option value="" disabled selected>Select</option>
+                <option value="g1">g1</option>
+                <option value="h1">h1</option>
+                <option value="smpl">smpl</option>
+            </select>
+        </label><br><br>
+        <label>Choose your eval task:
+            <select name="task" required>
+                <option value="" disabled selected>Select</option>
+                <option value="Lie">Lie</option>
+                <option value="Push">Push</option>
+                <option value="Touch">Touch</option>
+                <option value="Lift">Lift</option>
+                <option value="Sit">Sit</option>
+                <option value="Claw">Claw</option>
+            </select>
+        </label><br><br>
+        <button type="submit">upload</button>
+    </form>
+</body>
+</html>
+
