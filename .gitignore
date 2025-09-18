@@ -72,3 +72,7 @@ tests/
 
 
 scripts/strip_cn_comments.py
+
+outputs/
+
+server/uploaded_files/

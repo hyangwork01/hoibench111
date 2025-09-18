@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Humanoid–Object Interaction Challenge - 排行榜</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); color: #fff; min-height: 100vh; padding: 20px; }
+    .leaderboard-container { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    header { text-align: center; margin-bottom: 40px; padding: 20px; background: rgba(0,0,0,.3); border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.1); }
+    h1 { font-size: 2.8rem; margin-bottom: 15px; background: linear-gradient(90deg,#4facfe,#00f2fe); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 2px 4px rgba(0,0,0,.2); }
+    .subtitle { font-size: 1.2rem; color: #a0d2ff; max-width: 800px; margin: 0 auto; line-height: 1.6; }
+    .tracks-container { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; }
+    .track { flex: 1; min-width: 350px; background: rgba(20,30,48,.85); border-radius: 15px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.4); transition: transform .3s ease, box-shadow .3s ease; border: 1px solid rgba(255,255,255,.1); }
+    .track:hover { transform: translateY(-10px); box-shadow: 0 15px 35px rgba(0,0,0,.5); }
+    .track-header { padding: 20px; text-align: center; background: linear-gradient(90deg,#1d2b64,#1d2b64); border-bottom: 2px solid rgba(255,255,255,.1); }
+    .track-total .track-header { background: linear-gradient(90deg,#617db2,#dd8181); }
+    .track-1 .track-header { background: linear-gradient(90deg,#2e5c9d,#be4040); }
+    .track-2 .track-header { background: linear-gradient(90deg,#1e5f9b,#8a2525); }
+    .track-3 .track-header { background: linear-gradient(90deg,#1a2a6c,#b21f1f); }
+    .robot-icon { font-size: 3rem; margin-bottom: 15px; color: #fff; }
+    .track-title { font-size: 1.8rem; margin-bottom: 5px; color: #fff; }
+    .table-container { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background-color: rgba(0,0,0,.3); padding: 15px 10px; text-align: left; font-weight: 600; color: #64b5f6; text-transform: uppercase; font-size: .85rem; }
+    tr { border-bottom: 1px solid rgba(255,255,255,.05); transition: background-color .2s; }
+    tr:hover { background-color: rgba(255,255,255,.05); }
+    td { padding: 15px 10px; color: #e0e0e0; }
+    .rank { font-weight: bold; font-size: 1.2rem; text-align: center; width: 50px; color: #4fc3f7; }
+    .team-name { font-weight: 500; color: #fff; }
+    .medal { display: inline-block; width: 30px; height: 30px; border-radius: 50%; text-align: center; line-height: 30px; margin-right: 8px; font-weight: bold; }
+    .gold { background: linear-gradient(135deg,#ffd700,#ff9800); color:#fff; }
+    .silver { background: linear-gradient(135deg,#c0c0c0,#808080); color:#fff; }
+    .bronze { background: linear-gradient(135deg,#cd7f32,#8c5a2b); color:#fff; }
+    .footer { text-align: center; margin-top: 40px; padding: 20px; color: #a0d2ff; font-size: .9rem; border-top: 1px solid rgba(255,255,255,.1); }
+    @media (max-width: 1200px) { .tracks-container { flex-direction: column; align-items: center; } .track { width: 100%; max-width: 600px; } }
+    @media (max-width: 768px) { h1 { font-size: 2.2rem; } .track { min-width: 300px; } th, td { padding: 12px 8px; font-size: .9rem; } }
+  </style>
+</head>
+<body>
+  <div class="leaderboard-container">
+    <header>
+      <h1><i class="fas fa-robot"></i> Humanoid–Object Interaction Challenge Leaderboard</h1>
+      <p class="subtitle">Displays the performance of teams across three robot types. Overall ranking is the average of each team's robot-wise averages.</p>
+    </header>
+
+    <div class="tracks-container" id="tracks-container"><!-- JS 动态插入 --></div>
+
+    <div class="footer">
+      <p>Last data update: <span id="last-update"></span> | The HOI Challenge organizers reserve the final interpretation rights</p>
+      <p>© 2025 Humanoid–Object Interaction Challenge</p>
+    </div>
+  </div>
+
+  <script>
+    // ========== 配置 ==========
+    const ROBOTS = ["g1", "h1", "smpl"];
+    const TASKS  = ["Lie", "Push", "Touch", "Lift", "Sit", "Claw"];
+
+    // 本地化数值格式（避免 -0.00）
+    const nf2 = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); // MDN Intl.NumberFormat
+    const norm = v => (Math.abs(v) < 1e-9 ? 0 : v);                                                     // 归零负零
+
+    // 简单转义，避免把队伍名插到 innerHTML 时产生 XSS
+    const esc = s => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;'}[m]));
+
+    // ========== 基础请求：单个 robot+task ==========
+    async function fetchOne(robot, task) {
+      const qs = new URLSearchParams({ robot_type: robot, task }); // MDN URLSearchParams
+      const res = await fetch(`/api/get_leaderboard?${qs.toString()}`); // MDN fetch
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);              // fetch 不会因 404/500 自动 reject
+      const json = await res.json();                                   // Response.json() 异步
+      if (json.code !== 200) throw new Error(json.message || "API error");
+      return Array.isArray(json.data) ? json.data : [];
+    }
+
+    // ========== 拉取全部数据并聚合 ==========
+    async function loadAllData() {
+      // 构造 3x6 个任务，并用 allSettled 处理（单个失败不影响整体）
+      const jobs = [];
+      for (const r of ROBOTS) for (const t of TASKS) jobs.push({ r, t, p: fetchOne(r, t) });
+
+      const settled = await Promise.allSettled(jobs.map(j => j.p)); // MDN Promise.allSettled
+      // 结果合并回 (robot, task, rows)，失败的视为 rows=[]
+      const results = settled.map((s, i) => {
+        const { r, t } = jobs[i];
+        return s.status === "fulfilled" ? { robot: r, task: t, rows: s.value }
+                                        : { robot: r, task: t, rows: [] };
+      });
+
+      // byTeam 结构：{ [team]: { robots: { g1:{scores:{Lie:..}, avg:..}, ... }, totalAvg:.. } }
+      const byTeam = {};
+      for (const { robot, task, rows } of results) {
+        for (const { team_name, score } of rows) {
+          const team = byTeam[team_name] ??= { robots: {} };
+          const slot = team.robots[robot] ??= { scores: {} };
+          // 同队伍同 task 若多条，取最大分
+          const prev = Number(slot.scores[task] ?? 0);
+          const curr = Number(score) || 0;
+          slot.scores[task] = Math.max(prev, curr);
+        }
+      }
+
+      // 组装三个机器人表 + 总榜
+      const robotTables = { g1: [], h1: [], smpl: [] };
+      const overall = [];
+
+      for (const [team, info] of Object.entries(byTeam)) {
+        let sumRobotAvg = 0;
+
+        for (const r of ROBOTS) {
+          const slot = info.robots[r] ??= { scores: {} };
+          let s = 0;
+          for (const t of TASKS) {
+            const v = Number(slot.scores[t] ?? 0);
+            slot.scores[t] = v;
+            s += v;
+          }
+          const avg = s / TASKS.length;
+          slot.avg = avg;
+          sumRobotAvg += avg;
+
+          robotTables[r].push({
+            team_name: team,
+            Lie: slot.scores["Lie"],
+            Push: slot.scores["Push"],
+            Touch: slot.scores["Touch"],
+            Lift: slot.scores["Lift"],
+            Sit: slot.scores["Sit"],
+            Claw: slot.scores["Claw"],
+            avg_score: avg
+          });
+        }
+
+        const totalAvg = sumRobotAvg / ROBOTS.length; // 总榜=三个 robot 的 avg 平均
+        overall.push({ team_name: team, total_score: totalAvg });
+      }
+
+      // 排序（降序）
+      for (const r of ROBOTS) robotTables[r].sort((a, b) => b.avg_score - a.avg_score);
+      overall.sort((a, b) => b.total_score - a.total_score);
+
+      return { overall, robotTables };
+    }
+
+    // ========== 渲染 ==========
+    function rowsHTMLRobot(rows) {
+      return rows.map((e, i) => {
+        const medal = i===0 ? "gold" : i===1 ? "silver" : i===2 ? "bronze" : "";
+        const medalCell = medal ? `<span class="medal ${medal}">${i+1}</span>` : (i+1);
+        return `
+          <tr>
+            <td class="rank">${medalCell}</td>
+            <td class="team-name">${esc(e.team_name)}</td>
+            <td style="text-align:right">${nf2.format(norm(e.Lie))}</td>
+            <td style="text-align:right">${nf2.format(norm(e.Push))}</td>
+            <td style="text-align:right">${nf2.format(norm(e.Touch))}</td>
+            <td style="text-align:right">${nf2.format(norm(e.Lift))}</td>
+            <td style="text-align:right">${nf2.format(norm(e.Sit))}</td>
+            <td style="text-align:right">${nf2.format(norm(e.Claw))}</td>
+            <td style="text-align:right; font-weight:600">${nf2.format(norm(e.avg_score))}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    function rowsHTMLTotal(rows) {
+      return rows.map((e, i) => {
+        const medal = i===0 ? "gold" : i===1 ? "silver" : i===2 ? "bronze" : "";
+        const medalCell = medal ? `<span class="medal ${medal}">${i+1}</span>` : (i+1);
+        return `
+          <tr>
+            <td class="rank">${medalCell}</td>
+            <td class="team-name">${esc(e.team_name)}</td>
+            <td class="score" style="text-align:right">${nf2.format(norm(e.total_score))}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    function cardHTML(title, icon, klass, theadColsHTML, bodyHTML) {
+      return `
+        <div class="track ${klass}">
+          <div class="track-header">
+            <div class="robot-icon"><i class="fas ${icon}"></i></div>
+            <h2 class="track-title">${title}</h2>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>${theadColsHTML}</thead>
+              <tbody>${bodyHTML}</tbody>
+            </table>
+          </div>
+        </div>`;
+    }
+
+    async function loadLeaderboards() {
+      const container = document.getElementById("tracks-container");
+      container.innerHTML = "";
+
+      try {
+        const { overall, robotTables } = await loadAllData();
+
+        // 总榜
+        const totalHead = `
+          <tr>
+            <th>Rank</th><th>Team Name</th><th style="text-align:right">Overall Avg</th>
+          </tr>`;
+        container.insertAdjacentHTML(
+          "beforeend",
+          cardHTML("Overall Leaderboard", "fa-trophy", "track-total", totalHead, rowsHTMLTotal(overall))
+        );
+
+        // 三个机器人榜
+        const robotHead = `
+          <tr>
+            <th>Rank</th><th>Team Name</th>
+            <th style="text-align:right">Lie</th>
+            <th style="text-align:right">Push</th>
+            <th style="text-align:right">Touch</th>
+            <th style="text-align:right">Lift</th>
+            <th style="text-align:right">Sit</th>
+            <th style="text-align:right">Claw</th>
+            <th style="text-align:right">avg_score</th>
+          </tr>`;
+
+        const robotMeta = {
+          g1:   { title: "Robot g1",  icon: "fa-robot",          klass: "track-1" },
+          h1:   { title: "Robot h1",  icon: "fa-android",        klass: "track-2" },
+          smpl: { title: "Robot smpl",icon: "fa-user-astronaut", klass: "track-3" }
+        };
+
+        for (const r of ROBOTS) {
+          const meta = robotMeta[r];
+          container.insertAdjacentHTML(
+            "beforeend",
+            cardHTML(meta.title, meta.icon, meta.klass, robotHead, rowsHTMLRobot(robotTables[r]))
+          );
+        }
+      } catch (e) {
+        container.innerHTML = `<div class="track"><div class="track-header"><h2 class="track-title">加载失败</h2></div><div style="padding:16px">无法加载排行榜：${esc(e.message || e)}</div></div>`;
+        console.error(e);
+      }
+
+      document.getElementById("last-update").textContent =
+        new Date().toLocaleString("zh-CN", { hour12: false });
+    }
+
+    loadLeaderboards();
+  </script>
+</body>
+</html>
